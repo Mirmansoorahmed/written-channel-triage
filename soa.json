@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "project": "written-channel-triage",
+    "scope": "Secure triage of written customer support for the fictional telco NordTel GmbH.",
+    "disclaimer": "Portfolio project. Synthetic data only. Not a certification; nothing here is 'certified', 'compliant' or 'audit-ready'. Standard text is never copied; only control IDs plus my own-words titles are used.",
+    "format": "soa.json reuses the shape from my iso27001-evidence-as-code project: a flat list of controls, each with id, own-words title, applicability, how it is implemented here, and the code/evidence that backs it."
+  },
+  "controls": [
+    {
+      "id": "triage-ingest-trust",
+      "title": "Sender-trust check on written messages (my words)",
+      "applicable": true,
+      "implemented": "Parse .eml, read SPF/DKIM/DMARC from Authentication-Results, return an explainable trust verdict.",
+      "evidence": ["src/triage/ingest.py", "tests/test_ingest.py"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.5.14", "A.8.16"],
+        "iso42001": ["A.6.2.6"],
+        "nis2_art21": ["21.2.d"],
+        "eu_ai_act": []
+      }
+    },
+    {
+      "id": "triage-phishing-rules",
+      "title": "Rule-based phishing flags (my words)",
+      "applicable": true,
+      "implemented": "Heuristics for fake invoice, lookalike domain and urgent payment link; records which rule matched.",
+      "evidence": ["src/triage/ingest.py", "eval/results.json"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.5.7", "A.8.23"],
+        "iso42001": [],
+        "nis2_art21": ["21.2.a"],
+        "eu_ai_act": []
+      }
+    },
+    {
+      "id": "triage-pii-masking",
+      "title": "Mask personal data before any model call (my words)",
+      "applicable": true,
+      "implemented": "Reversible masking with an in-memory token map; no raw PII reaches the model, handoff or log.",
+      "evidence": ["src/triage/pii.py", "tests/test_pii.py"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.5.34", "A.8.11"],
+        "iso42001": ["A.7.4"],
+        "nis2_art21": ["21.2.i"],
+        "eu_ai_act": []
+      }
+    },
+    {
+      "id": "triage-classify-rag",
+      "title": "Local classification over my own category descriptions (my words)",
+      "applicable": true,
+      "implemented": "Local retrieval scores my own categories; a pluggable LLM picks from candidates; offline default for CI.",
+      "evidence": ["src/triage/classify.py", "src/triage/categories.py", "src/triage/llm.py"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.8.25"],
+        "iso42001": ["A.6.2.2", "A.6.2.4"],
+        "nis2_art21": [],
+        "eu_ai_act": []
+      }
+    },
+    {
+      "id": "triage-injection-detect",
+      "title": "Prompt-injection detector on masked text (my words)",
+      "applicable": true,
+      "implemented": "Rule-based detector runs on the masked text; on a hit, no tool use is permitted.",
+      "evidence": ["src/triage/injection.py", "tests/test_injection.py", "eval/results.json"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.8.26", "A.8.28"],
+        "iso42001": ["A.6.2.6"],
+        "nis2_art21": ["21.2.e"],
+        "eu_ai_act": []
+      }
+    },
+    {
+      "id": "triage-policy-gate",
+      "title": "No auto-execution of account-changing actions (my words)",
+      "applicable": true,
+      "implemented": "Tariff change, cancellation, address change and SEPA change create a pending approval for a human; read-only answers proceed.",
+      "evidence": ["src/triage/policy.py", "tests/test_policy.py"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.5.15", "A.8.2"],
+        "iso42001": ["A.9.2"],
+        "nis2_art21": ["21.2.d"],
+        "eu_ai_act": ["Art.14"]
+      }
+    },
+    {
+      "id": "triage-ai-disclosure",
+      "title": "AI transparency line on machine output (my words)",
+      "applicable": true,
+      "implemented": "Every machine-generated output carries a disclosure that an automated system handled the message.",
+      "evidence": ["src/triage/output.py", "tests/test_output.py"],
+      "maps_to": {
+        "iso27001_annex_a": [],
+        "iso42001": ["A.8.2"],
+        "nis2_art21": [],
+        "eu_ai_act": ["Art.50"]
+      }
+    },
+    {
+      "id": "triage-out-of-hours",
+      "title": "Queue out-of-hours requests instead of closing (my words)",
+      "applicable": true,
+      "implemented": "Outside 07:00-23:00 the request is queued with an ETA; it is never silently closed.",
+      "evidence": ["src/triage/output.py", "tests/test_output.py", "eval/results.json"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.5.26"],
+        "iso42001": [],
+        "nis2_art21": ["21.2.b"],
+        "eu_ai_act": []
+      }
+    },
+    {
+      "id": "triage-audit-chain",
+      "title": "Tamper-evident audit log (my words)",
+      "applicable": true,
+      "implemented": "Hash-chained JSONL: each line stores the previous line's SHA-256; no raw PII is logged.",
+      "evidence": ["src/triage/audit.py", "tests/test_audit.py"],
+      "maps_to": {
+        "iso27001_annex_a": ["A.8.15", "A.8.16"],
+        "iso42001": ["A.6.2.8"],
+        "nis2_art21": ["21.2.d"],
+        "eu_ai_act": ["Art.12"]
+      }
+    }
+  ]
+}
