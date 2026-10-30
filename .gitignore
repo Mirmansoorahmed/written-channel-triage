@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Kiro config (specs approved are copied to docs/spec/ in my own words)
+.kiro/
+
+# Eval artifacts kept out unless intentionally committed
+# (results.json is committed on purpose by the eval harness)
