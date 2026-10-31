@@ -78,12 +78,32 @@ def similarity(a: str, b: str) -> float:
     return max(w, c)
 
 
-def _reference_texts() -> list[tuple[str, str]]:
-    """Train items + the detector/few-shot examples the model actually sees."""
+def _generator_template_texts() -> list[tuple[str, str]]:
+    """The raw generator template/payload strings themselves (Round 3).
+
+    So the unseen set can be checked against the generator's TEMPLATES directly,
+    not just its materialised train items -- a stricter guard that the hand-written
+    unseen items share no template with the generator.
+    """
     refs: list[tuple[str, str]] = []
-    for r in _load("train"):
-        refs.append(("train:" + r["id"], r["text"]))
-    # Few-shot + detector exemplars (only if importable; they are plain strings).
+    try:
+        from data import generator as gen
+
+        for cat, tmpls in gen.TEMPLATES.items():
+            for i, t in enumerate(tmpls):
+                refs.append((f"gen_template:{cat}#{i}", t.replace("{en}", "")))
+        for i, p in enumerate(gen._INJECTION_PAYLOADS):
+            refs.append((f"gen_payload#{i}", p))
+        for i, b in enumerate(gen._PHISH_BODIES):
+            refs.append((f"gen_phish#{i}", b.replace("{d}", "")))
+    except Exception:
+        pass
+    return refs
+
+
+def _model_facing_examples() -> list[tuple[str, str]]:
+    """The few-shot / detector exemplars the model actually sees."""
+    refs: list[tuple[str, str]] = []
     try:
         from triage.retrieval import FEWSHOT, INJECTION_EXEMPLARS
 
@@ -95,7 +115,7 @@ def _reference_texts() -> list[tuple[str, str]]:
     except Exception:
         pass
     try:
-        from triage.ingest import PHISHING_EXEMPLARS  # optional, if present
+        from triage.ingest import PHISHING_EXEMPLARS
 
         for i, ex in enumerate(PHISHING_EXEMPLARS):
             refs.append((f"phishing_exemplar#{i}", ex))
@@ -104,9 +124,37 @@ def _reference_texts() -> list[tuple[str, str]]:
     return refs
 
 
-def check(threshold: float = DEFAULT_THRESHOLD) -> list[dict]:
-    test = _load("test")
-    refs = _reference_texts()
+def _reference_texts() -> list[tuple[str, str]]:
+    """Train items + the model-facing examples (what the TEST split is checked
+    against)."""
+    refs: list[tuple[str, str]] = [("train:" + r["id"], r["text"]) for r in _load("train")]
+    refs += _model_facing_examples()
+    return refs
+
+
+def _unseen_reference_texts() -> list[tuple[str, str]]:
+    """What the UNSEEN set is checked against: train items, the model-facing
+    examples, AND the generator's raw templates/payloads."""
+    return _reference_texts() + _generator_template_texts()
+
+
+def _load_unseen() -> list[dict]:
+    path = os.path.join(HERE, "..", "eval", "unseen", "unseen.jsonl")
+    rows = []
+    if not os.path.exists(path):
+        return rows
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                obj = json.loads(line)
+                if not obj.get("_meta"):
+                    rows.append(obj)
+    return rows
+
+
+def _check_rows(rows: list[dict], refs: list[tuple[str, str]],
+                threshold: float) -> list[dict]:
     # Pre-normalise references ONCE and cache their word/ngram sets, so the inner
     # loop is pure set math (no repeated normalise/base64-decode per comparison).
     norm_refs = [
@@ -119,7 +167,7 @@ def check(threshold: float = DEFAULT_THRESHOLD) -> list[dict]:
     # looks close. This keeps the gate fast enough for CI without weakening it.
     prefilter = max(0.4, threshold - 0.3)
     violations: list[dict] = []
-    for t in test:
+    for t in rows:
         tn = _norm(t["text"])
         tw, tc = set(tn.split()), _char_ngrams(tn)
         worst = 0.0
@@ -137,29 +185,45 @@ def check(threshold: float = DEFAULT_THRESHOLD) -> list[dict]:
                 break
         if worst >= threshold:
             violations.append({
-                "test_id": t["id"], "family": t["family"],
+                "test_id": t["id"], "family": t.get("family", "?"),
                 "nearest_ref": worst_ref, "similarity": round(worst, 4),
             })
     return violations
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
-    args = ap.parse_args()
-    violations = check(args.threshold)
+def check(threshold: float = DEFAULT_THRESHOLD) -> list[dict]:
+    """Test split vs train + model-facing examples."""
+    return _check_rows(_load("test"), _reference_texts(), threshold)
+
+
+def check_unseen(threshold: float = DEFAULT_THRESHOLD) -> list[dict]:
+    """Unseen set vs train + model-facing examples + generator templates."""
+    return _check_rows(_load_unseen(), _unseen_reference_texts(), threshold)
+
+
+def _report(name: str, violations: list[dict], threshold: float) -> int:
     if violations:
-        print(f"LEAKAGE: {len(violations)} test item(s) >= {args.threshold} similar "
-              f"to a train/example item:")
+        print(f"LEAKAGE ({name}): {len(violations)} item(s) >= {threshold} similar "
+              f"to a reference item:")
         for v in violations[:20]:
             print(f"  {v['test_id']} ({v['family']}) ~ {v['nearest_ref']} "
                   f"sim={v['similarity']}")
         if len(violations) > 20:
             print(f"  ... and {len(violations) - 20} more")
         return 1
-    print(f"OK: no test item >= {args.threshold} similar to any train/example item "
-          f"(threshold {args.threshold}).")
+    print(f"OK ({name}): no item >= {threshold} similar to a reference item.")
     return 0
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD)
+    args = ap.parse_args()
+    rc = 0
+    rc |= _report("test vs train+examples", check(args.threshold), args.threshold)
+    rc |= _report("unseen vs train+examples+generator-templates",
+                  check_unseen(args.threshold), args.threshold)
+    return rc
 
 
 if __name__ == "__main__":
