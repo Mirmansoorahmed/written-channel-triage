@@ -38,7 +38,7 @@ def run(
 
     # Step 1: sender trust + phishing (rule-based, on the raw message).
     trust = ingest.sender_trust(request)
-    phishing = ingest.detect_phishing(request)
+    phishing = ingest.detect_phishing(request, trust=trust)
 
     # Step 2: mask PII before anything model-facing. Token map stays local.
     masked = pii.mask(request.raw_text)
