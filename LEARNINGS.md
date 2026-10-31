@@ -108,3 +108,81 @@ The scores are on my own synthetic corpus, generated in this repo. They show the
 behaves as designed on those cases — including two cases where it does not — and they are
 **not** a benchmark and say nothing about real traffic. Nothing here is certified or
 audit-ready — it's a portfolio build.
+
+---
+
+# v2 — turning it into something I could hand a customer
+
+v1 proved the pipeline behaves as designed and, importantly, exposed two real gaps once the
+corpus was big enough. v2 is about closing those gaps honestly, putting real models behind
+the protocol I already had, and building the dataset, eval, delivery and documentation a
+Forward Deployed Engineer would hand over. The rule I kept: **the default path stays offline
+and free, and no number appears unless a run produced it.**
+
+## Real models, same seams
+
+- **OllamaClient behind the v1 `LLMClient` protocol.** It asks a local SLM
+  (`qwen2.5:1.5b-instruct`) for constrained JSON `{category, fields, confidence}` at
+  temperature 0 with a timeout. The decision I'm proudest of is the **fallback**: any
+  failure — connection refused, timeout, malformed JSON, a category outside the allowed set
+  — returns the v1 baseline answer and records why. An unavailable model degrades quality,
+  never safety, and never crashes a request. `httpx` is imported lazily so the module still
+  imports with the standard library alone.
+- **Embedding retrieval, local and multilingual.** `intfloat/multilingual-e5-small` over my
+  own category descriptions plus a few few-shot examples. The point is the v1 misses were
+  near-neighbour categories (Vertrag vs. Tarifwechsel), which keywords can't separate but
+  embeddings should. The eval measures whether they actually do — I'm not assuming it.
+- **Lazy imports everywhere.** numpy, sentence-transformers, matplotlib, fastapi all live
+  inside the functions that use them. Importing any module with the stdlib must not raise;
+  that invariant is what keeps CI green with no downloads, and the tests mock the model
+  boundaries (fake httpx, fake encoder).
+
+## Closing the v1 gaps
+
+- **Injection recall was 0.9259** because the regexes keyed on contiguous phrasing. v2
+  normalises first — NFKC, strip zero-width/bidi characters, fold a small
+  Cyrillic/Greek homoglyph table, collapse deliberate single-letter spacing — then matches.
+  I added a "repeat/verbatim your instructions" pattern (the second miss) and a step that
+  decodes short base64 blobs and re-scans them. On the generated test split the four
+  obfuscation families (plain, spaced, homoglyph, base64) are all caught, with zero false
+  positives on the benign look-alikes. The de-spacer only collapses runs of ≥4 single
+  characters, so I don't mangle ordinary short text — an explicit precision/recall trade.
+- **The phishing false positive** (`wget …/payload` matched the `pay` substring) is fixed
+  with a word-boundary payment-link rule. A genuine `pay-…/login` link still matches; the
+  malicious `/payload` no longer counts as a payment link (it's still malicious, just not
+  that label).
+- **Post-model PII re-check.** After the SLM returns, any field value containing an
+  unmasked IBAN/email/phone/customer-number is dropped and flagged. So even if a model
+  echoes a raw value, it can't leak onward.
+
+## Data and eval, done so the numbers mean something
+
+- **Seeded dataset.** `data/generator.py` builds ~1,670 items from templates with a tone
+  knob, a typo injector and a German/English mixer, realistic auth headers, and explicit
+  attack/PII families — then writes a stratified train/dev/test split. One fixed seed means
+  the customer and I run byte-for-byte identical data (I verified by hashing two runs). The
+  test split is held out; the eval reads only `test.jsonl`.
+- **Three systems, one interface.** v1 regex, embeddings-only, embeddings + SLM, scored the
+  same way: accuracy, macro-F1, per-class precision/recall, confusion matrix (PNG + CSV),
+  latency p50/p95, and detector precision/recall. The error analysis and datasheet are
+  generated from the data, never typed.
+- **Pending by design.** Offline (and in CI) only System A runs; B and C are written as
+  `"pending real run"` with no numbers. `make eval-real` fills them on a machine with the
+  models. This is the honest version of "here are my results" — the numbers show up when a
+  real run produces them.
+
+## Delivery and docs
+
+A FastAPI `POST /triage` over the unchanged pipeline (serialised without the token map, so
+no raw PII leaves the process), a Dockerfile and a compose file for api + ollama, an
+architecture doc with trust boundaries and a data-flow view of where PII lives, 6 ADRs, and
+a STRIDE threat model mapped to OWASP LLM Top 10 (2025) and MITRE ATLAS with the covering
+test named for each threat.
+
+## Honest limits (unchanged in spirit from v1)
+
+Everything is measured on **synthetic** data generated in this repo. It shows the pipeline
+behaves as designed on those cases and is **not** a benchmark or a statement about real
+traffic. Detection is heuristic plus a small model, so a novel enough injection can still
+slip past; the embedding-similarity check narrows that but does not close it. Nothing here
+is certified or audit-ready — it's a portfolio build, written so I can defend every line.

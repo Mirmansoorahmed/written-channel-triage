@@ -4,17 +4,17 @@
   "checks": {
     "phishing_detection": {
       "tp": 26,
-      "fp": 1,
+      "fp": 0,
       "fn": 0,
-      "precision": 0.963,
+      "precision": 1.0,
       "recall": 1.0
     },
     "injection_detection": {
-      "tp": 25,
+      "tp": 27,
       "fp": 0,
-      "fn": 2,
+      "fn": 0,
       "precision": 1.0,
-      "recall": 0.9259
+      "recall": 1.0
     },
     "pii_masking": {
       "cases": 27,

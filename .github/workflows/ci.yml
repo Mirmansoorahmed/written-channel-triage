@@ -21,8 +21,16 @@ jobs:
       - name: Run tests
         run: python -m pytest
 
-      - name: Run eval
+      - name: Run eval (v1)
         run: PYTHONPATH=src python -m eval.harness
 
-      - name: Show eval results
+      - name: Show v1 eval results
         run: cat eval/results.json
+
+      - name: Run eval (v2 offline subset)
+        # System A runs; Systems B/C need real models and are marked
+        # "pending real run" here. No model download in CI.
+        run: PYTHONPATH=src python -m eval.harness_v2
+
+      - name: Show v2 eval results
+        run: cat eval/results-v2.json
