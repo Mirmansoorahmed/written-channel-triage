@@ -80,3 +80,50 @@ and its tests pass locally (stdlib + pytest, no network).
       Plain commit messages, first-person engineer voice, no tool names, no
       Co-authored-by. Numbers stay "pending real run" until the real-model outputs are
       pasted back and committed.
+
+---
+
+## Round 3 — credibility fixes
+
+A review of the first real run exposed places where the eval and detectors still
+flattered themselves. These tasks fix that; numbers stay "pending real run" until
+`TRIAGE_EVAL_REAL=1 ... eval.harness_v2` is run with the models.
+
+- [x] R3.1 Trained classifier. `src/triage/learned.py` (calibrated LR on e5 for
+      category + a binary injection head), `eval/train_models.py` (`make train`,
+      fits on train only, injection threshold chosen on dev, writes
+      `models/*.joblib` + `manifest.json`), SystemD/E in `eval/systems.py`,
+      scikit-learn/joblib extras, tests with a fake embedder.
+
+- [x] R3.2 Phishing without generator knowledge. Delete the generator-domain
+      lookalike regex; score generic signals (auth, own-domain lookalike via
+      punycode+homoglyph+edit-distance, link text/href mismatch, urgency+payment)
+      against a documented threshold. Test that no generator domain appears in src/.
+
+- [x] R3.3 Injection. Remove the fixed 0.80 embedding threshold; verdict = rules OR
+      injection-LR prob ≥ dev threshold (stored in manifest). Threat model cites only
+      this mechanism and passing tests.
+
+- [x] R3.4 Unseen set ≥ 200 hand-written items (≥30 injection incl. indirect /
+      encoded / headers, ≥30 phishing, ≥30 benign-with-links), no generator overlap;
+      `overlap_check` also compares unseen against train and generator templates.
+
+- [x] R3.5 Calibration. ECE + reliability (table + PNG) for C and D; D calibrated on
+      dev; C not routed on confidence; review threshold documented in ADR 0007.
+
+- [x] R3.6 Harness. Score each split once (dev/test/unseen, no seen_template); build
+      overall_test from the test report; count slm_diagnostics once per split; fail
+      if C's fallback rate > 2%; category metric only on category-bearing families.
+
+- [x] R3.7 PII masker. Typo-tolerant labels/IBAN/street/email/name; generator records
+      pre- and post-typo truth; `eval/pii_leak_check.py` fuzzy-checks all test+unseen
+      items; target 0 leaks, real count in results-v2.json.
+
+- [x] R3.8 Cost + metrics. Per-system CPU seconds/item, peak RSS, latency p50/p95;
+      `docs/generate_tables.py` cost-per-1k from CPU + a labelled VM price assumption;
+      `GET /metrics` serves Prometheus text.
+
+- [x] R3.9 Cleanup. Drop the paste-back paragraph; configurable harness output dir so
+      tests use tmp_path; generated PNG/CSV git-ignored; `make docs` emits D/E, cost
+      and calibration rows; error-analysis / datasheet / LEARNINGS updated; all tables
+      say "pending real run" in the committed state.

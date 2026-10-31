@@ -16,11 +16,12 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        # Install the api + models + eval extras so the FastAPI, retriever and
-        # metrics tests actually run (previously skipped). The model boundaries
-        # are still mocked in the tests, so no model weights are downloaded at
-        # test time; sentence-transformers is present only so imports resolve.
-        run: pip install -e ".[api,models,eval]" pytest
+        # Install the core package plus the lightweight libs the tests need
+        # (FastAPI/pydantic for the API, numpy/scikit-learn/joblib for the
+        # learned + retriever tests, matplotlib for charts, httpx for the Ollama
+        # client). The model boundaries are mocked with fakes, so NO model
+        # weights (sentence-transformers/torch) are downloaded in CI.
+        run: pip install -e . pytest fastapi uvicorn "pydantic>=2" numpy scikit-learn joblib matplotlib httpx
 
       - name: Run tests
         run: python -m pytest -rs
@@ -28,16 +29,17 @@ jobs:
       - name: Run eval (v1)
         run: PYTHONPATH=src python -m eval.harness
 
-      - name: Show v1 eval results
-        run: cat eval/results.json
-
-      - name: Leakage gate (fails if any test item >= 0.9 similar to train/examples)
+      - name: Leakage gate (test AND unseen vs train/examples/generator-templates)
         run: PYTHONPATH=src python -m data.overlap_check
 
-      - name: Run eval (v2 offline subset)
-        # System A runs; Systems B/C need real models and are marked
-        # "pending real run" here. No model download in CI.
-        run: PYTHONPATH=src python -m eval.harness_v2
+      - name: Fuzzy PII leak check (all test + unseen items; fails on any leak)
+        run: PYTHONPATH=src python -m eval.pii_leak_check
 
-      - name: Show v2 eval results
-        run: cat eval/results-v2.json
+      - name: Run eval (v2 offline subset, to a throwaway path)
+        # System A runs; B/C/D/E need real models and are marked pending. The
+        # committed results-v2.json (the pending placeholder) is left untouched.
+        run: |
+          PYTHONPATH=src python -c "import json,eval.harness_v2 as h; r=h.run_eval(real=False, out_dir='/tmp/ci-eval', results_path='/tmp/ci-eval/results.json', error_analysis_path='/tmp/ci-eval/err.md'); print('v2 offline ok; systems:', list(r['systems']))"
+
+      - name: Confirm committed results-v2.json is the pending placeholder
+        run: PYTHONPATH=src python -c "import json; d=json.load(open('eval/results-v2.json')); assert all(b.get('status')=='pending real run' for b in d['systems'].values()), 'committed results must be pending'; print('committed results-v2.json is pending: OK')"

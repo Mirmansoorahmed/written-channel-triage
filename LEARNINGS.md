@@ -186,3 +186,72 @@ behaves as designed on those cases and is **not** a benchmark or a statement abo
 traffic. Detection is heuristic plus a small model, so a novel enough injection can still
 slip past; the embedding-similarity check narrows that but does not close it. Nothing here
 is certified or audit-ready — it's a portfolio build, written so I can defend every line.
+
+---
+
+# Round 3 — making the comparison honest
+
+A second review caught the places where v2 still flattered itself. The fixes below are
+less about new features and more about not fooling myself (or a reader).
+
+## The eval was leaking and double-scoring
+
+- **Split by template, score once.** The harness had been scoring the test split twice
+  (once per "bucket" and once for `overall_test`) and still carried an always-empty
+  `seen_template` bucket. Now the splits are simply dev / test / unseen, each scored
+  exactly once, and `overall_test` is just the test report. `slm_diagnostics` is counted
+  once per split.
+- **Category metric only on category items.** Phishing and injection rows were being
+  mixed into the category accuracy. They are detector problems; the category metric now
+  runs only on the category-bearing families.
+- **A real "unseen" set.** I grew `eval/unseen/` to 200+ hand-written items (every
+  category in German / English / mixed, plus indirect/forwarded, obfuscated, role-play and
+  base64/rot13/leetspeak injections, lookalike-domain phishing, and benign-with-links
+  mail). The overlap gate now also checks the unseen set against the generator's raw
+  templates, not just the materialised train rows. The test-vs-unseen gap is the honest
+  headline: a regex that looks strong on held-out templates it has seen the shape of can
+  still fall to ~0.5 on genuinely new phrasing.
+
+## The detectors were cheating
+
+- **Phishing knew the generator's domains.** The old lookalike regex literally listed the
+  dataset's bad domains. I deleted it and scored generic signals instead: auth fail/missing,
+  a lookalike of NordTel's *own* domains (punycode decode + homoglyph fold + edit distance),
+  link text/href mismatch, and urgency+payment — weighted against a documented threshold. A
+  test fails if any generator domain reappears in `src/`.
+- **The injection "embedding check" flagged almost everything.** The fixed 0.80 cosine
+  cut-off was flagging 99/100 normal messages. It is gone. The verdict is now the normalised
+  rules OR a trained injection-LR whose threshold is chosen on dev (best F1 with precision
+  ≥ 0.9) and stored in `models/manifest.json`.
+
+## A model, trained properly
+
+System D is a calibrated LogisticRegression on `multilingual-e5-small` embeddings, fit on
+`train.jsonl` only, with the injection threshold chosen on `dev.jsonl` only. Artifacts are
+seeded and deterministic (same seed → same coefficients, checked in a test with a fake
+embedder) and ship with a manifest (seed, versions, embedding model, labels, sha256 of the
+train file, threshold). System E trusts D when its calibrated probability is high and pays
+for the SLM only on the low-confidence tail, reporting its SLM-call rate.
+
+## Calibration, because confidence lied
+
+C's self-reported confidence sits near 0.95 whether or not it is right, so I report its ECE
+honestly and do **not** route on it. D is calibrated on dev, and its calibrated probability
+drives the human-review threshold (ADR 0007). ECE and a reliability table/PNG are reported
+for both.
+
+## PII, checked against the truth
+
+The masker now tolerates typo'd labels (edit distance ≤ 2), partial and country-code-typo'd
+IBANs (ED44/D44), typo'd streets and cities, truncated-TLD emails, and signature names after
+any greeting — and the generator records each PII value in both pre- and post-typo form. The
+leak check (`eval/pii_leak_check.py`) fuzzy-searches every ground-truth value over all test
+and unseen items (partial ratio ≥ 0.85, any 8+ char IBAN fragment counts). It runs in CI and
+the committed count is 0, measured against the truth rather than the masker's own regex.
+
+## Honest limits (Round 3)
+
+Still synthetic, still not a benchmark. The committed `results-v2.json` is a **pending**
+placeholder on purpose: every metric, cost and calibration table says "pending real run"
+until the models are run locally, because only System A runs without them and a one-system
+table would be misleading. Run `make train && make eval-real && make docs` to fill them in.

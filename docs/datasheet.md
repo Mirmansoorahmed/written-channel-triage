@@ -55,9 +55,9 @@ The test split is held out: the eval reads only `test.jsonl` and the generator n
 
 | auth | items | share |
 |---|---|---|
-| fail | 336 | 16.3% |
-| missing | 1283 | 62.4% |
-| pass | 437 | 21.3% |
+| fail | 341 | 16.6% |
+| missing | 1285 | 62.5% |
+| pass | 430 | 20.9% |
 
 ## Label prevalence (whole corpus)
 
@@ -65,15 +65,15 @@ The test split is held out: the eval reads only `test.jsonl` and the generator n
 |---|---|---|
 | is_phishing | 182 | 8.9% |
 | is_injection | 160 | 7.8% |
-| has_pii | 417 | 20.3% |
-| out_of_hours | 240 | 11.7% |
+| has_pii | 428 | 20.8% |
+| out_of_hours | 223 | 10.8% |
 
 ## Source (eml vs form)
 
 | source | items | share |
 |---|---|---|
-| eml | 998 | 48.5% |
-| form | 1058 | 51.5% |
+| eml | 1012 | 49.2% |
+| form | 1044 | 50.8% |
 
 ## How it was generated
 
