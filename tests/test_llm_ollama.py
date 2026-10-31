@@ -99,3 +99,84 @@ def test_ollama_default_model_and_host():
     client = OllamaClient()
     assert client.model == "qwen2.5:1.5b-instruct"
     assert client.host.startswith("http")
+
+
+# --- v2 review fix #3: strict mode, stats, Sonstiges, keep_alive ---
+
+
+def test_keep_alive_defaults_to_30m():
+    client = OllamaClient()
+    assert client.keep_alive == "30m"
+
+
+def test_sonstiges_always_in_allowed(monkeypatch):
+    # Even if candidates don't include Sonstiges, the model may return it.
+    model_json = {"response": json.dumps({"category": "Sonstiges", "confidence": 0.4})}
+    _install_fake_httpx(monkeypatch, response=model_json)
+    client = OllamaClient()
+    name, conf = client.classify("unklar", [("Rechnung", 0.2)])
+    assert name == "Sonstiges"
+    assert client.stats["invalid_category"] == 0
+
+
+def test_stats_count_json_failure(monkeypatch):
+    _install_fake_httpx(monkeypatch, response={"response": "not json"})
+    client = OllamaClient()
+    client.classify("x", [("Vertrag", 0.4)])
+    assert client.stats["json_failures"] == 1
+    assert client.stats["fallbacks"] == 1
+
+
+def test_stats_count_invalid_category(monkeypatch):
+    model_json = {"response": json.dumps({"category": "Quatsch", "confidence": 0.9})}
+    _install_fake_httpx(monkeypatch, response=model_json)
+    client = OllamaClient()
+    client.classify("x", [("Vertrag", 0.4)])
+    assert client.stats["invalid_category"] == 1
+
+
+def test_stats_collect_confidences(monkeypatch):
+    model_json = {"response": json.dumps({"category": "Rechnung", "confidence": 0.95})}
+    _install_fake_httpx(monkeypatch, response=model_json)
+    client = OllamaClient()
+    client.classify("x", [("Rechnung", 0.4)])
+    assert client.stats["confidences"] == [0.95]
+
+
+def test_strict_raises_when_httpx_missing(monkeypatch):
+    monkeypatch.setitem(sys.modules, "httpx", None)
+    client = OllamaClient(strict=True)
+    with pytest.raises(RuntimeError):
+        client.classify("x", [("Rechnung", 0.4)])
+
+
+def test_strict_raises_on_connection_error(monkeypatch):
+    _install_fake_httpx(monkeypatch, raise_exc=RuntimeError("connection refused"))
+    client = OllamaClient(strict=True)
+    with pytest.raises(RuntimeError):
+        client.classify("x", [("Rechnung", 0.4)])
+
+
+def test_nonstrict_still_falls_back(monkeypatch):
+    _install_fake_httpx(monkeypatch, raise_exc=RuntimeError("connection refused"))
+    client = OllamaClient(strict=False)
+    name, _ = client.classify("x", [("Rechnung", 0.7)])
+    assert name == "Rechnung"
+    assert client.stats["fallbacks"] == 1
+
+
+def test_request_includes_keep_alive(monkeypatch):
+    captured = {}
+    fake = _install_fake_httpx(
+        monkeypatch,
+        response={"response": json.dumps({"category": "Rechnung", "confidence": 0.5})},
+    )
+    orig_post = fake.post
+
+    def spy(url, json=None, timeout=None):  # noqa: A002
+        captured["json"] = json
+        return orig_post(url, json=json, timeout=timeout)
+
+    fake.post = spy
+    OllamaClient().classify("x", [("Rechnung", 0.4)])
+    assert captured["json"]["keep_alive"] == "30m"

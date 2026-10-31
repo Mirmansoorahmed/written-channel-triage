@@ -1,43 +1,76 @@
 # Error analysis (v2)
 
-This file is **generated** by `eval/harness_v2.py` from the actual misclassifications of the latest run over the held-out test split. If a system did not run (pending real model), it has no section here.
+This file is **generated** by `eval/harness_v2.py` from the actual misclassifications of the latest run. Results are broken out per split bucket: **seen-template** (test items whose template is also in train -- empty under the template-family split, which is the point), **unseen-template** (the normal held-out test items), and **unseen** (the hand-varied `eval/unseen/` set). A system that did not run has no section.
 
 ## System A_v1_regex
 
-- Misclassified: **46**
+### Split: seen_template
 
-### Most common confusions
+- Misclassified: **0**
+
+No category errors in this bucket.
+
+### Split: unseen_template
+
+- Misclassified: **106**
+
+Most common confusions:
 
 | expected | predicted | count |
 |---|---|---|
-| Kündigung | Vertrag | 10 |
-| Sonstiges | Störung | 7 |
-| Tarifwechsel | Umzug | 5 |
+| Sonstiges | Störung | 34 |
+| Kündigung | Vertrag | 17 |
+| Kündigung | Umzug | 9 |
+| Technik-Setup | Umzug | 7 |
+| Datenschutz | Umzug | 6 |
+| Vertrag | Umzug | 4 |
 | Sonstiges | Umzug | 4 |
-| Rechnung | Umzug | 3 |
-| Technik-Setup | Störung | 3 |
-| Beschwerde | Umzug | 3 |
-| Störung | Sonstiges | 2 |
-| Technik-Setup | Sonstiges | 2 |
-| Vertrag | Umzug | 1 |
+| Rechnung | Sonstiges | 2 |
 
-### Examples
+Examples:
 
 | id | family | expected | predicted | masked excerpt |
 |---|---|---|---|---|
-| item-00004 | normal | Rechnung | Umzug | Serh geehrte Damen und Herreen, ich habe eine Mahnun bkeommen, verstehe aber die offene Rchnung niccht.  Mit freundlichen Grüßen [[NAME_1]] |
-| item-00089 | normal | Rechnung | Umzug | Sehr geehrtes ervicteeam, auf meiner Rechnugn tauhct eine Position auf, die ich nicht uzordnen kann. Kunennummer: 773904104, IBAN [[IBAN_1]], Mail [[EMAIL_1]].  |
-| item-00097 | normal | Rechnung | Umzug | Moin, auf meiner Rechunng taucht eine Poistion auf, die ich nicht zuordnnen kann.  Viele Grüße [[NAME_1]] |
-| item-00114 | normal | Vertrag | Umzug | Sehr geehret Damen un Herren, bis wann gilt meine Mindestlafuzeit? Ich finde die Angabe nicht.  Mit freundlichen rGüßen Lena Berg |
-| item-00329 | normal | Störung | Sonstiges | Guetn TTag, die Verbinung funktioniert inch, allles tot seit gestern Abend.  Danke Max Berg |
-| item-00337 | normal | Störung | Beschwerde | Sehr geehrtes Serviceteam, die Verbindung funktioniert nich, alles tot seit gestern Abend. Kunddennummer: 287492016.  Mit frendlichen Grüßen Erika Klein |
-| item-00401 | normal | Kündigung | Vertrag | Hallo, hiermit kündige ich meinen Vertrag zum nächstmöglichen eTrmin.  Grüße [[NAME_1]] |
-| item-00406 | normal | Kündigung | Vertrag | Moin, hiermit kündige ich meinen Vertrag zm nächstmöglichen Termin.  Vielee Grrüße Pal Mustermann |
-| item-00427 | normal | Kündigung | Vertrag | Hallo, hiermit kündige ich meinen Vertrag zum nähcsstmöglichen Termin.  LG Erika Mustermann |
-| item-00430 | normal | Kündigung | Vertrag | Sehr geehrte Damen und Herren, hiiermit kündige ich meinen Vertrag uzm nächstmöglich Termin. Kudnennummer: 871257418, IBAN [[IBAN_1]], Tel [[PHONE_1]], Mail [[E |
-| item-00433 | normal | Kündigung | Vertrag | Guten Tg, bitte miene Kündigung zum Ende der Laufzeit vomerken.  Freundliche Grüße [[NAME_1]] |
-| item-00495 | normal | Kündigung | Vertrag | From: [[EMAIL_1]] Subject: Anfrage: Kündigung Authentication-Results: mx.nordtel.example; spf=pass; dkim=pass; dmarc=pass  Hallo, bitte meine Kündigung zum Ende |
-| item-00607 | normal | Tarifwechsel | Umzug | Guten Tag, kaann ich eminen Taarif  eine kleinere Option dwngraedn? (thankks in advance)  Beste Grüße [[NAME_1]] |
-| item-00641 | normal | Tarifwechsel | Umzug | Hi, bitte eine Option zubuce und den Tarif entpsrechend ändren. Kundennummer: [[CUSTOMER_1]], Tel [[PHONE_1]], Mail [[EMAIL_1]].  Danke und Grüße [[NAME_1]] |
-| item-00700 | normal | Tarifwechsel | Beschwerde | Sehr geehrtes Serviceteam, bitte ein Option zubuchn und den Tarif entsprehcend ändern.  Bestee Grüße [[NAME_1]] |
+| item-00063 | normal | Rechnung | Sonstiges | Guten Tg, warum ist die bAbucuhng diesen Monat höher als sonst? Bitte die eGbühr erklären.  Mit freudnlichen Grüüßen [[NAME_1]] |
+| item-00068 | normal | Rechnung | Vertrag | Gtuen Tga, warum ist die Abbuchugn diesen Monat höher als sonst? Bitte die Gebühr erklären. Vertragsnummer: [[CUSTOMER_1]], IBAAN E02 1203 [[PHONE_1]], Tel [[PH |
+| item-00282 | normal | Vertrag | Beschwerde | Sehr geehrtes Serviceteam, bis wnn gilt meine Mindetslaufzei? Ich finde die Angabe nicht.  Mit freundlicen Grüßen [[NAME_1]] |
+| item-00283 | normal | Vertrag | Umzug | Guten Tag, bis wann ggilt meine Minndestlafzeit? Ich finde die Angabe nicth.  Grüße [[NAME_1]] |
+| item-00292 | normal | Vertrag | Umzug | Guten Tag, bis wann gilt meine Mindestlufzeit? Ich finde die Angabe nicht.  Mit freundlcihen Grüßen [[NAME_1]] |
+| item-00299 | normal | Vertrag | Umzug | Hallo, bis wann ggilt meine Mindestlaufzet? Ich finde die Angabe nicht. Kundnenummer: [[CUSTOMER_1]], Tel [[PHONE_1]], Mail [[EMAIL_1]].  Danke [[NAME_1]] |
+| item-00312 | normal | Vertrag | Umzug | Mion, bis wann gilt meine Mindestlafzeit? Ich finde die Angabe nicht.  Viele Grüße [[NAME_1]] |
+| item-00370 | normal | Umzug | Vertrag | Moin, ich ziee um und möchte meineen Aschluss an die neue Adrsessee mitnehmen. Vertragsnummer: [[CUSTOMER_1]], Tel [[PHONE_1]], neue [[ADDRESS_1]].  LG [[NAME_1 |
+| item-00383 | normal | Umzug | Störung | Sehr geehrte Damen und Herren, ich ziehe um und mcöhte mienen Anschluss an die neue Adrsese mitnnehmen.  Mit freundlichen Grüßen [[NAME_1]] |
+| item-00490 | normal | Störung | Beschwerde | Shr geehrtes Serviceteam, mei Inetrnet ist seit heute früh komplett tot, kein Ancshluss mehr. (best regards)  Freundliche Grüße [[NAME_1]] |
+
+### Split: unseen
+
+- Misclassified: **30**
+
+Most common confusions:
+
+| expected | predicted | count |
+|---|---|---|
+| Sonstiges | Umzug | 3 |
+| Störung | Sonstiges | 2 |
+| Beschwerde | Sonstiges | 2 |
+| Datenschutz | Umzug | 2 |
+| Technik-Setup | Sonstiges | 2 |
+| Rechnung | Sonstiges | 2 |
+| Umzug | Störung | 1 |
+| Beschwerde | Störung | 1 |
+
+Examples:
+
+| id | family | expected | predicted | masked excerpt |
+|---|---|---|---|---|
+| unseen-002 | unseen_normal | Störung | Sonstiges | Guten Abend, seit dem Update der Firmware startet die Box alle paar Minuten neu und das Netz ist dann weg. |
+| unseen-003 | unseen_normal | Umzug | Störung | Hallo zusammen, ich pendle ab Januar nach Hamburg und würde den Anschluss gern dorthin mitnehmen statt neu zu buchen. |
+| unseen-005 | unseen_normal | Beschwerde | Störung | Mir reicht es langsam: dritter Termin, dritter Techniker, der nicht kommt. So kann man mit Kunden nicht umgehen. |
+| unseen-006 | unseen_normal | Datenschutz | Sonstiges | Please send me a copy of all data you hold about me, I am exercising my GDPR right of access. |
+| unseen-007 | unseen_normal | Tarifwechsel | Datenschutz | Ich telefoniere praktisch nie mehr, surfe aber viel. Gibt es ein reines Datenpaket, auf das ich wechseln kann? |
+| unseen-009 | unseen_normal | Kündigung | Vertrag | Zum Vertragsende möchte ich aussteigen; bitte senden Sie mir eine schriftliche Bestätigung mit dem Abschalttag. |
+| unseen-010 | unseen_normal | Sonstiges | Umzug | Nur eine kurze allgemeine Erkundigung: bieten Sie eigentlich auch Verträge für Gewerbekunden an? |
+| unseen-011 | unseen_normal | Rechnung | Umzug | Es wurden im Oktober zwei Beträge abgebucht, einmal 39,99 und einmal 44,98. Normalerweise ist es nur einer. |
+| unseen-012 | unseen_normal | Störung | Sonstiges | Abends zwischen 20 und 23 Uhr habe ich regelmäßig Paketverluste beim Spielen, sonst läuft alles. |
+| unseen-013 | unseen_normal | Umzug | Sonstiges | We are relocating the office next month and would like to keep the current business line at the new address. |
 

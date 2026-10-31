@@ -46,14 +46,20 @@ class SystemB:
 
 
 class SystemC:
-    """Embeddings + SLM: retriever top-k -> SLM picks one."""
+    """Embeddings + SLM: retriever top-k -> SLM picks one.
+
+    The SLM client runs in strict mode so an unavailable model fails the run
+    loudly rather than silently degrading to the baseline (review fix #3). Its
+    per-item stats (fallbacks, invalid categories, timeouts, JSON failures,
+    confidences) are exposed via `.stats` for the harness to report.
+    """
 
     key = "C_embeddings_slm"
     label = "embeddings + SLM"
 
     def __init__(self, retriever, client=None, model: str = "qwen2.5:1.5b-instruct"):
         self._retriever = retriever
-        self._client = client or OllamaClient(model=model)
+        self._client = client or OllamaClient(model=model, strict=True)
 
     def classify(self, masked_text: str) -> tuple[str, float]:
         result = classify_mod.classify(
@@ -61,16 +67,24 @@ class SystemC:
         )
         return result.category, result.confidence
 
+    @property
+    def stats(self) -> dict:
+        return getattr(self._client, "stats", {})
+
 
 def build_real_systems(model: str = "qwen2.5:1.5b-instruct"):
     """Build B and C with real models. Returns (systems, retriever) or raises
-    ImportError/RuntimeError if the model libraries are not installed.
-
-    The caller decides what to do on failure (the harness marks B/C pending).
+    ImportError/RuntimeError if the model libraries are not installed, or if the
+    Ollama server cannot be reached (strict preflight), so the harness marks B/C
+    pending rather than reporting a silent-fallback run as if it were measured.
     """
     from triage.retrieval import EmbeddingRetriever
 
     retriever = EmbeddingRetriever().build()  # triggers the real encoder load
+    # Preflight: a strict probe call. If Ollama is down this raises, and the
+    # harness records "pending real run" instead of a baseline-in-disguise run.
+    probe = OllamaClient(model=model, strict=True)
+    probe.classify("Testanfrage zur Rechnung.", [("Rechnung", 0.5)])
     return [SystemB(retriever), SystemC(retriever, model=model)], retriever
 
 

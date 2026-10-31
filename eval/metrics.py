@@ -107,6 +107,27 @@ def latency_summary(samples_ms: list[float]) -> dict:
     }
 
 
+def confidence_histogram(values: list[float], bins: int = 10) -> dict:
+    """Bucket confidences into `bins` equal-width buckets over [0, 1].
+
+    Added for the review finding that the SLM's confidence is almost always ~0.95
+    -- the histogram makes that collapse visible instead of hiding it behind a mean.
+    """
+    counts = [0 for _ in range(bins)]
+    for v in values:
+        v = max(0.0, min(1.0, float(v)))
+        idx = min(bins - 1, int(v * bins))
+        counts[idx] += 1
+    edges = [round(i / bins, 2) for i in range(bins + 1)]
+    return {
+        "bins": bins,
+        "edges": edges,
+        "counts": counts,
+        "n": len(values),
+        "mean": round(sum(values) / len(values), 4) if values else None,
+    }
+
+
 def classification_report(y_true: list[str], y_pred: list[str], labels: list[str] | None = None) -> dict:
     labels = labels or sorted(set(y_true) | set(y_pred))
     pcs = per_class(y_true, y_pred, labels)

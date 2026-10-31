@@ -19,6 +19,17 @@ from .models import (
     TrustVerdict,
 )
 
+# Reference phishing phrasings used in docs/tests. IMPORTANT: these are written NOT
+# to match the dataset generator's phishing bodies (`data/generator.py`); the
+# phishing detector itself is rule-based (regex), so these are only reference
+# examples and the overlap check uses them to confirm the detector's examples are
+# not copied from the corpus. Synthetic, obviously fake, no real brand.
+PHISHING_EXEMPLARS: list[str] = [
+    "Wir konnten Ihre letzte Abbuchung nicht verarbeiten, bestaetigen Sie Ihre Daten unter dem Link.",
+    "Sicherheitsabteilung: ungewoehnliche Anmeldung erkannt, verifizieren Sie Ihr Konto sofort.",
+    "Ihr Anschluss wird in Kuerze deaktiviert; zur Reaktivierung hier die Zahlung freigeben.",
+]
+
 # --- parsing ---------------------------------------------------------------
 
 

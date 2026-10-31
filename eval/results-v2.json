@@ -1,218 +1,654 @@
 {
-  "note": "Synthetic data only; fictional NordTel GmbH. Not a certification. All numbers are produced by this eval run over the held-out test split.",
+  "note": "Synthetic data only; fictional NordTel GmbH. Not a certification. All numbers are produced by this eval run. Split is by template family; the unseen set is hand-varied and never seen by the model.",
   "run_mode": "offline subset (System A only)",
-  "test_split_size": 272,
+  "sizes": {
+    "test": 594,
+    "seen_template": 0,
+    "unseen_template": 594,
+    "unseen_handvaried": 60,
+    "train": 893
+  },
   "systems": {
     "A_v1_regex": {
-      "accuracy": 0.8309,
-      "macro_f1": 0.8086,
-      "per_class": {
-        "Beschwerde": {
-          "precision": 0.8636,
-          "recall": 0.8636,
-          "f1": 0.8636,
-          "support": 22
+      "label": "v1 regex/keyword",
+      "status": "measured",
+      "by_split": {
+        "seen_template": {
+          "status": "empty",
+          "n": 0
         },
-        "Datenschutz": {
-          "precision": 1.0,
-          "recall": 0.95,
-          "f1": 0.9744,
-          "support": 20
+        "unseen_template": {
+          "accuracy": 0.8215,
+          "macro_f1": 0.7975,
+          "per_class": {
+            "Beschwerde": {
+              "precision": 0.8846,
+              "recall": 1.0,
+              "f1": 0.9388,
+              "support": 46
+            },
+            "Datenschutz": {
+              "precision": 1.0,
+              "recall": 0.7609,
+              "f1": 0.8642,
+              "support": 46
+            },
+            "Kündigung": {
+              "precision": 1.0,
+              "recall": 0.3696,
+              "f1": 0.5397,
+              "support": 46
+            },
+            "Rechnung": {
+              "precision": 1.0,
+              "recall": 0.9776,
+              "f1": 0.9887,
+              "support": 134
+            },
+            "Sonstiges": {
+              "precision": 0.8889,
+              "recall": 0.4878,
+              "f1": 0.6299,
+              "support": 82
+            },
+            "Störung": {
+              "precision": 0.5301,
+              "recall": 0.9565,
+              "f1": 0.6822,
+              "support": 46
+            },
+            "Tarifwechsel": {
+              "precision": 1.0,
+              "recall": 0.9245,
+              "f1": 0.9608,
+              "support": 53
+            },
+            "Technik-Setup": {
+              "precision": 1.0,
+              "recall": 0.8367,
+              "f1": 0.9111,
+              "support": 49
+            },
+            "Umzug": {
+              "precision": 0.5789,
+              "recall": 0.9565,
+              "f1": 0.7213,
+              "support": 46
+            },
+            "Vertrag": {
+              "precision": 0.6308,
+              "recall": 0.8913,
+              "f1": 0.7387,
+              "support": 46
+            }
+          },
+          "confusion_matrix": {
+            "labels": [
+              "Beschwerde",
+              "Datenschutz",
+              "Kündigung",
+              "Rechnung",
+              "Sonstiges",
+              "Störung",
+              "Tarifwechsel",
+              "Technik-Setup",
+              "Umzug",
+              "Vertrag"
+            ],
+            "matrix": [
+              [
+                46,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                1,
+                35,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                6,
+                2
+              ],
+              [
+                0,
+                0,
+                17,
+                0,
+                1,
+                2,
+                0,
+                0,
+                9,
+                17
+              ],
+              [
+                0,
+                0,
+                0,
+                131,
+                2,
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              [
+                2,
+                0,
+                0,
+                0,
+                40,
+                34,
+                0,
+                0,
+                4,
+                2
+              ],
+              [
+                1,
+                0,
+                0,
+                0,
+                1,
+                44,
+                0,
+                0,
+                0,
+                0
+              ],
+              [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                49,
+                0,
+                2,
+                1
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                41,
+                7,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                44,
+                1
+              ],
+              [
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                4,
+                41
+              ]
+            ]
+          },
+          "latency": {
+            "n": 594,
+            "p50_ms": 0.07,
+            "p95_ms": 0.09,
+            "mean_ms": 0.07
+          },
+          "n": 594,
+          "status": "measured"
         },
-        "Kündigung": {
-          "precision": 1.0,
-          "recall": 0.45,
-          "f1": 0.6207,
-          "support": 20
-        },
-        "Rechnung": {
-          "precision": 1.0,
-          "recall": 0.9538,
-          "f1": 0.9764,
-          "support": 65
-        },
-        "Sonstiges": {
-          "precision": 0.8286,
-          "recall": 0.7073,
-          "f1": 0.7632,
-          "support": 41
-        },
-        "Störung": {
-          "precision": 0.6552,
-          "recall": 0.8636,
-          "f1": 0.7451,
-          "support": 22
-        },
-        "Tarifwechsel": {
-          "precision": 1.0,
-          "recall": 0.7273,
-          "f1": 0.8421,
-          "support": 22
-        },
-        "Technik-Setup": {
-          "precision": 1.0,
-          "recall": 0.7,
-          "f1": 0.8235,
-          "support": 20
-        },
-        "Umzug": {
-          "precision": 0.5405,
-          "recall": 1.0,
-          "f1": 0.7018,
-          "support": 20
-        },
-        "Vertrag": {
-          "precision": 0.6552,
-          "recall": 0.95,
-          "f1": 0.7755,
-          "support": 20
+        "unseen": {
+          "accuracy": 0.5,
+          "macro_f1": 0.4524,
+          "per_class": {
+            "Beschwerde": {
+              "precision": 0.0,
+              "recall": 0.0,
+              "f1": 0.0,
+              "support": 4
+            },
+            "Datenschutz": {
+              "precision": 0.6667,
+              "recall": 0.4,
+              "f1": 0.5,
+              "support": 5
+            },
+            "Kündigung": {
+              "precision": 0.6667,
+              "recall": 0.5,
+              "f1": 0.5714,
+              "support": 4
+            },
+            "Rechnung": {
+              "precision": 0.8182,
+              "recall": 0.6923,
+              "f1": 0.75,
+              "support": 13
+            },
+            "Sonstiges": {
+              "precision": 0.2667,
+              "recall": 0.4,
+              "f1": 0.32,
+              "support": 10
+            },
+            "Störung": {
+              "precision": 0.6,
+              "recall": 0.5,
+              "f1": 0.5455,
+              "support": 6
+            },
+            "Tarifwechsel": {
+              "precision": 0.75,
+              "recall": 0.5,
+              "f1": 0.6,
+              "support": 6
+            },
+            "Technik-Setup": {
+              "precision": 0.8333,
+              "recall": 0.7143,
+              "f1": 0.7692,
+              "support": 7
+            },
+            "Umzug": {
+              "precision": 0.125,
+              "recall": 0.3333,
+              "f1": 0.1818,
+              "support": 3
+            },
+            "Vertrag": {
+              "precision": 0.2,
+              "recall": 0.5,
+              "f1": 0.2857,
+              "support": 2
+            }
+          },
+          "confusion_matrix": {
+            "labels": [
+              "Beschwerde",
+              "Datenschutz",
+              "Kündigung",
+              "Rechnung",
+              "Sonstiges",
+              "Störung",
+              "Tarifwechsel",
+              "Technik-Setup",
+              "Umzug",
+              "Vertrag"
+            ],
+            "matrix": [
+              [
+                0,
+                0,
+                0,
+                0,
+                2,
+                1,
+                1,
+                0,
+                0,
+                0
+              ],
+              [
+                0,
+                2,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                2,
+                0
+              ],
+              [
+                0,
+                0,
+                2,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                1,
+                9,
+                2,
+                0,
+                0,
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                1,
+                4,
+                0,
+                0,
+                1,
+                3,
+                1
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                2,
+                3,
+                0,
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                1,
+                0,
+                0,
+                1,
+                0,
+                3,
+                0,
+                0,
+                1
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                2,
+                0,
+                0,
+                5,
+                0,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                1,
+                1,
+                0,
+                0,
+                1,
+                0
+              ],
+              [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                1,
+                1
+              ]
+            ]
+          },
+          "latency": {
+            "n": 60,
+            "p50_ms": 0.06,
+            "p95_ms": 0.08,
+            "mean_ms": 0.06
+          },
+          "n": 60,
+          "status": "measured"
         }
       },
-      "confusion_matrix": {
-        "labels": [
-          "Beschwerde",
-          "Datenschutz",
-          "Kündigung",
-          "Rechnung",
-          "Sonstiges",
-          "Störung",
-          "Tarifwechsel",
-          "Technik-Setup",
-          "Umzug",
-          "Vertrag"
-        ],
-        "matrix": [
-          [
-            19,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            3,
-            0
+      "overall_test": {
+        "accuracy": 0.8215,
+        "macro_f1": 0.7975,
+        "per_class": {
+          "Beschwerde": {
+            "precision": 0.8846,
+            "recall": 1.0,
+            "f1": 0.9388,
+            "support": 46
+          },
+          "Datenschutz": {
+            "precision": 1.0,
+            "recall": 0.7609,
+            "f1": 0.8642,
+            "support": 46
+          },
+          "Kündigung": {
+            "precision": 1.0,
+            "recall": 0.3696,
+            "f1": 0.5397,
+            "support": 46
+          },
+          "Rechnung": {
+            "precision": 1.0,
+            "recall": 0.9776,
+            "f1": 0.9887,
+            "support": 134
+          },
+          "Sonstiges": {
+            "precision": 0.8889,
+            "recall": 0.4878,
+            "f1": 0.6299,
+            "support": 82
+          },
+          "Störung": {
+            "precision": 0.5301,
+            "recall": 0.9565,
+            "f1": 0.6822,
+            "support": 46
+          },
+          "Tarifwechsel": {
+            "precision": 1.0,
+            "recall": 0.9245,
+            "f1": 0.9608,
+            "support": 53
+          },
+          "Technik-Setup": {
+            "precision": 1.0,
+            "recall": 0.8367,
+            "f1": 0.9111,
+            "support": 49
+          },
+          "Umzug": {
+            "precision": 0.5789,
+            "recall": 0.9565,
+            "f1": 0.7213,
+            "support": 46
+          },
+          "Vertrag": {
+            "precision": 0.6308,
+            "recall": 0.8913,
+            "f1": 0.7387,
+            "support": 46
+          }
+        },
+        "confusion_matrix": {
+          "labels": [
+            "Beschwerde",
+            "Datenschutz",
+            "Kündigung",
+            "Rechnung",
+            "Sonstiges",
+            "Störung",
+            "Tarifwechsel",
+            "Technik-Setup",
+            "Umzug",
+            "Vertrag"
           ],
-          [
-            0,
-            19,
-            0,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0
-          ],
-          [
-            0,
-            0,
-            9,
-            0,
-            1,
-            0,
-            0,
-            0,
-            0,
-            10
-          ],
-          [
-            0,
-            0,
-            0,
-            62,
-            0,
-            0,
-            0,
-            0,
-            3,
-            0
-          ],
-          [
-            1,
-            0,
-            0,
-            0,
-            29,
-            7,
-            0,
-            0,
-            4,
-            0
-          ],
-          [
-            1,
-            0,
-            0,
-            0,
-            2,
-            19,
-            0,
-            0,
-            0,
-            0
-          ],
-          [
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            16,
-            0,
-            5,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0,
-            2,
-            3,
-            0,
-            14,
-            1,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            20,
-            0
-          ],
-          [
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            19
+          "matrix": [
+            [
+              46,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1,
+              35,
+              0,
+              0,
+              0,
+              2,
+              0,
+              0,
+              6,
+              2
+            ],
+            [
+              0,
+              0,
+              17,
+              0,
+              1,
+              2,
+              0,
+              0,
+              9,
+              17
+            ],
+            [
+              0,
+              0,
+              0,
+              131,
+              2,
+              0,
+              0,
+              0,
+              0,
+              1
+            ],
+            [
+              2,
+              0,
+              0,
+              0,
+              40,
+              34,
+              0,
+              0,
+              4,
+              2
+            ],
+            [
+              1,
+              0,
+              0,
+              0,
+              1,
+              44,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              49,
+              0,
+              2,
+              1
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              41,
+              7,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              0,
+              44,
+              1
+            ],
+            [
+              1,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              4,
+              41
+            ]
           ]
-        ]
-      },
-      "latency": {
-        "n": 272,
-        "p50_ms": 0.07,
-        "p95_ms": 0.09,
-        "mean_ms": 0.07
-      },
-      "status": "measured",
-      "label": "v1 regex/keyword",
-      "confusion_png": "not rendered (matplotlib absent)"
+        },
+        "latency": {
+          "n": 594,
+          "p50_ms": 0.07,
+          "p95_ms": 0.1,
+          "mean_ms": 0.07
+        },
+        "n": 594,
+        "status": "measured",
+        "confusion_png": "not rendered (matplotlib absent)"
+      }
     },
     "B_embeddings_only": {
       "status": "pending real run"
@@ -222,28 +658,61 @@
     }
   },
   "detectors": {
-    "phishing": {
-      "tp": 28,
-      "fp": 0,
-      "fn": 0,
-      "tn": 244,
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
+    "test": {
+      "split": "test",
+      "phishing": {
+        "tp": 52,
+        "fp": 0,
+        "fn": 0,
+        "tn": 542,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "injection": {
+        "tp": 40,
+        "fp": 0,
+        "fn": 0,
+        "tn": 554,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "pii_masking_ground_truth": {
+        "cases": 124,
+        "leaks": 0,
+        "no_leak": 124,
+        "recall": 1.0,
+        "leaked_examples": []
+      }
     },
-    "injection": {
-      "tp": 24,
-      "fp": 0,
-      "fn": 0,
-      "tn": 248,
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0
-    },
-    "pii_masking": {
-      "cases": 59,
-      "no_leak": 59,
-      "recall": 1.0
+    "unseen": {
+      "split": "unseen",
+      "phishing": {
+        "tp": 2,
+        "fp": 2,
+        "fn": 1,
+        "tn": 55,
+        "precision": 0.5,
+        "recall": 0.6667,
+        "f1": 0.5714
+      },
+      "injection": {
+        "tp": 2,
+        "fp": 0,
+        "fn": 6,
+        "tn": 52,
+        "precision": 1.0,
+        "recall": 0.25,
+        "f1": 0.4
+      },
+      "pii_masking_ground_truth": {
+        "cases": 6,
+        "leaks": 0,
+        "no_leak": 6,
+        "recall": 1.0,
+        "leaked_examples": []
+      }
     }
   }
 }

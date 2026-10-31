@@ -31,6 +31,9 @@ jobs:
       - name: Show v1 eval results
         run: cat eval/results.json
 
+      - name: Leakage gate (fails if any test item >= 0.9 similar to train/examples)
+        run: PYTHONPATH=src python -m data.overlap_check
+
       - name: Run eval (v2 offline subset)
         # System A runs; Systems B/C need real models and are marked
         # "pending real run" here. No model download in CI.

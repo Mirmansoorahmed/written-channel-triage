@@ -80,3 +80,73 @@ def test_raw_pii_kinds_lists_matches():
     kinds = raw_pii_kinds("IBAN DE89 3704 0044 0532 0130 00 und a@b.de")
     assert "iban" in kinds
     assert "email" in kinds
+
+
+# --- v2 review fix #2: typo-tolerant masking + ground-truth leak check ---
+
+from triage.pii import ground_truth_leaks
+
+
+def test_masks_customer_number_under_typo_label():
+    # "KKundeennumer" is a typo of Kundennummer; the number must still be masked.
+    r = mask("KKundeennumer: 123456789 Frage zur Rechnung.")
+    assert "123456789" not in r.masked_text
+    assert "[[CUSTOMER_1]]" in r.masked_text
+
+
+def test_masks_label_variants():
+    for label in ["Kundennr.", "Kd.-Nr.", "Vertragsnummer", "Kundennumer"]:
+        r = mask(f"{label}: 998877665 bitte prüfen")
+        assert "998877665" not in r.masked_text, label
+
+
+def test_masks_bare_long_number_as_customer():
+    r = mask("Meine Nummer 100200300 für die Rückfrage.")
+    assert "100200300" not in r.masked_text
+
+
+def test_masks_signature_after_garbled_signoff():
+    text = "Frage zur Rechnung.\n\nrGüße\nClara Schmidt"
+    r = mask(text)
+    assert "Clara Schmidt" not in r.masked_text
+    assert "[[NAME_1]]" in r.masked_text
+
+
+def test_masks_titled_hyphenated_name():
+    text = "Rechnungsfrage.\n\nMit freundlichen Grüßen\nDr. Katharina Vollmer-Schmidt"
+    r = mask(text)
+    assert "Katharina" not in r.masked_text
+    assert "Vollmer-Schmidt" not in r.masked_text
+
+
+def test_ground_truth_leaks_detects_survivor():
+    # A value in pii_truth that is NOT masked should be reported as leaked.
+    masked = "Kunde [[CUSTOMER_1]] mit IBAN DE89 3704 0044 0532 0130 00"
+    leaks = ground_truth_leaks(masked, ["DE89 3704 0044 0532 0130 00", "123456789"])
+    assert "DE89 3704 0044 0532 0130 00" in leaks
+    assert "123456789" not in leaks  # 123456789 is not present -> not leaked
+
+
+def test_ground_truth_leaks_whitespace_insensitive():
+    masked = "IBAN de8937040044053201 3000 blieb stehen"
+    leaks = ground_truth_leaks(masked, ["DE89 3704 0044 0532 0130 00"])
+    assert leaks  # whitespace/case differences still count as the same value
+
+
+def test_ground_truth_leaks_clean_when_all_masked():
+    masked = "Kunde [[CUSTOMER_1]], [[IBAN_1]], [[NAME_1]]"
+    assert ground_truth_leaks(masked, ["123456789", "DE89 3704 0044 0532 0130 00", "Max Mustermann"]) == []
+
+
+def test_masks_name_after_label():
+    # "Signatur: Dr. Katharina Vollmer-Schmidt" (name not on the last line).
+    r = mask("Rechnungsfrage. Kundennummer 123123123. Signatur: Dr. Katharina Vollmer-Schmidt.")
+    assert "Katharina" not in r.masked_text
+    assert "Vollmer-Schmidt" not in r.masked_text
+
+
+def test_masks_multiword_street_name():
+    # "Am Alten Markt 3, 04109 Leipzig" -- multi-word street, standalone suffix.
+    r = mask("Umzug: neue Anschrift Am Alten Markt 3, 04109 Leipzig.")
+    assert "Am Alten Markt 3" not in r.masked_text
+    assert "[[ADDRESS_1]]" in r.masked_text
