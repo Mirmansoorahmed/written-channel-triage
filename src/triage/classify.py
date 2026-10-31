@@ -14,9 +14,23 @@ from __future__ import annotations
 
 import re
 
-from . import categories
+from . import categories, pii
 from .llm import LLMClient, default_client
 from .models import Classification
+
+
+def _strip_raw_pii_fields(fields: dict[str, str]) -> list[str]:
+    """Drop any field value that carries unmasked PII (V22).
+
+    Returns the names of the fields that were blocked, so the reason string can
+    explain the action. Mutates `fields` in place.
+    """
+    blocked: list[str] = []
+    for key in list(fields):
+        if pii.contains_raw_pii(str(fields[key])):
+            blocked.append(key)
+            fields[key] = "[[REDACTED_PII]]"
+    return blocked
 
 
 def _score(masked_text: str, cat: categories.Category) -> float:
@@ -72,14 +86,32 @@ def _extract_fields(masked_text: str, cat: categories.Category) -> tuple[dict[st
     return found, missing
 
 
-def classify(masked_text: str, client: LLMClient | None = None) -> Classification:
-    """Classify a masked request and extract required fields (R10-R13)."""
+def classify(
+    masked_text: str,
+    client: LLMClient | None = None,
+    retriever=None,
+) -> Classification:
+    """Classify a masked request and extract required fields (R10-R13, V4, V22).
+
+    `retriever`, when supplied, provides the candidate categories instead of the
+    v1 regex retrieval (embeddings-only or embeddings+SLM). The v1 regex path is
+    the default and the eval baseline.
+    """
     client = client or default_client()
-    candidates = retrieve(masked_text)
+    if retriever is not None and hasattr(retriever, "candidates"):
+        candidates = retriever.candidates(masked_text)
+    else:
+        candidates = retrieve(masked_text)
     name, confidence = client.classify(masked_text, candidates)
 
     cat = categories.get(name) if name in categories.BY_NAME else categories.get("Sonstiges")
     fields, missing = _extract_fields(masked_text, cat)
+
+    # V22: the field values are read from the masked text here, so they are safe by
+    # construction. But a real SLM (OllamaClient) may echo content into fields; if
+    # any value carries unmasked PII, drop it and record the block so nothing raw
+    # leaves the model boundary.
+    pii_blocked = _strip_raw_pii_fields(fields)
 
     if confidence <= 0.0:
         reason = "no category cue matched; routed as Sonstiges for a human"
@@ -87,6 +119,8 @@ def classify(masked_text: str, client: LLMClient | None = None) -> Classificatio
         reason = f"low confidence ({confidence}); suggest human review"
     else:
         reason = f"matched '{cat.name}' with confidence {confidence}"
+    if pii_blocked:
+        reason += f"; blocked raw PII in model fields: {', '.join(pii_blocked)}"
 
     return Classification(
         category=cat.name,

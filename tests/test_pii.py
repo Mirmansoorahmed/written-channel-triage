@@ -53,3 +53,30 @@ def test_clean_text_has_no_placeholder():
     r = mask("Mein Internet ist langsam.")
     assert not contains_pii_placeholder(r.masked_text)
     assert r.token_map == {}
+
+
+# --- v2: SLM-output raw-PII re-check (V22) ---
+
+from triage.pii import contains_raw_pii, raw_pii_kinds
+
+
+def test_contains_raw_pii_detects_iban():
+    assert contains_raw_pii("Kunde IBAN DE89 3704 0044 0532 0130 00 bitte")
+
+
+def test_contains_raw_pii_detects_email():
+    assert contains_raw_pii("melde dich an max.mustermann@example.de")
+
+
+def test_placeholders_are_not_raw_pii():
+    assert not contains_raw_pii("Kunde [[IBAN_1]] und [[EMAIL_1]] fragt zur Rechnung")
+
+
+def test_clean_text_has_no_raw_pii():
+    assert not contains_raw_pii("Frage zur Rechnung im Mai, Kategorie Rechnung")
+
+
+def test_raw_pii_kinds_lists_matches():
+    kinds = raw_pii_kinds("IBAN DE89 3704 0044 0532 0130 00 und a@b.de")
+    assert "iban" in kinds
+    assert "email" in kinds

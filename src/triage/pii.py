@@ -91,3 +91,30 @@ def unmask(masked_text: str, token_map: dict[str, str]) -> str:
 def contains_pii_placeholder(text: str) -> bool:
     """True if the text still carries a masking placeholder."""
     return bool(re.search(r"\[\[[A-Z]+_\d+\]\]", text))
+
+
+# Raw-PII detectors for the SLM-output re-check (V22). We ignore masking
+# placeholders (they are safe) and look for unmasked structured values that must
+# never leave the model boundary: IBAN, email, German phone, customer number.
+_RAW_PII = (
+    ("iban", _IBAN),
+    ("email", _EMAIL),
+    ("phone", _PHONE),
+    ("customer", _CUSTOMER),
+)
+
+
+def contains_raw_pii(text: str) -> bool:
+    """True if `text` still contains an unmasked PII value (V22).
+
+    Used after the SLM returns to confirm the model did not echo a raw value back.
+    Placeholders like [[IBAN_1]] are stripped first so they never count as a leak.
+    """
+    stripped = re.sub(r"\[\[[A-Z]+_\d+\]\]", "", text)
+    return any(rx.search(stripped) for _name, rx in _RAW_PII)
+
+
+def raw_pii_kinds(text: str) -> list[str]:
+    """Which raw-PII kinds appear in `text` (for an explainable flag)."""
+    stripped = re.sub(r"\[\[[A-Z]+_\d+\]\]", "", text)
+    return [name for name, rx in _RAW_PII if rx.search(stripped)]

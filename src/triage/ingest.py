@@ -123,8 +123,15 @@ _FAKE_INVOICE = re.compile(
     r"(rechnung|mahnung|offene forderung).{0,60}(anbei|im anhang|klicken|link|pdf)",
     re.IGNORECASE | re.DOTALL,
 )
+# Payment-link cue. v1 fired on `/payload` because the bare substring `pay`
+# matched inside "payload" (false positive in the larger eval). v2 requires a word
+# boundary around `pay` and only treats `pay` as a cue when it stands alone or is
+# the `pay-`/`payment` prefix -- so a malicious `.../payload` no longer counts as a
+# payment link (it is still malicious, just not labelled phishing here). (V21)
 _PAYMENT_LINK = re.compile(
-    r"(https?://|www\.)\S*(zahlung|payment|pay|rechnung|invoice|verify|login|konto)\S*",
+    r"(https?://|www\.)\S*"
+    r"(zahlung|payment|\bpay\b|pay[-/]|rechnung|invoice|verify|login|konto)"
+    r"\S*",
     re.IGNORECASE,
 )
 

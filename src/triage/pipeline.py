@@ -27,6 +27,7 @@ def run(
     now: datetime | None = None,
     client: LLMClient | None = None,
     audit_path: str | None = None,
+    retriever=None,
 ) -> TriageResult:
     now = now or datetime.now(timezone.utc)
 
@@ -39,11 +40,13 @@ def run(
     # Step 2: mask PII before anything model-facing. Token map stays local.
     masked = pii.mask(request.raw_text)
 
-    # Step 3: classify on the masked text.
-    classification = classify.classify(masked.masked_text, client=client)
+    # Step 3: classify on the masked text. `retriever` (when supplied) swaps the
+    # v1 regex retrieval for embeddings; `client` can be a real SLM (V4).
+    classification = classify.classify(masked.masked_text, client=client, retriever=retriever)
 
-    # Step 4: injection detector on the masked text.
-    inj = injection.detect_injection(masked.masked_text)
+    # Step 4: injection detector on the masked text (normalised first; optional
+    # embedding-similarity check when a retriever is supplied) (V18-V20).
+    inj = injection.detect_injection(masked.masked_text, retriever=retriever)
 
     # Step 5: policy gate. Injection => no tool use; account changes => pending.
     policy = policy_mod.gate(classification.category, inj, now=now)
