@@ -16,10 +16,14 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -e . pytest
+        # Install the api + models + eval extras so the FastAPI, retriever and
+        # metrics tests actually run (previously skipped). The model boundaries
+        # are still mocked in the tests, so no model weights are downloaded at
+        # test time; sentence-transformers is present only so imports resolve.
+        run: pip install -e ".[api,models,eval]" pytest
 
       - name: Run tests
-        run: python -m pytest
+        run: python -m pytest -rs
 
       - name: Run eval (v1)
         run: PYTHONPATH=src python -m eval.harness

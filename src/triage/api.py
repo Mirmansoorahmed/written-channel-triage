@@ -1,23 +1,37 @@
 """FastAPI delivery surface (V28): POST /triage, GET /healthz.
 
 Reuses the existing pipeline unchanged. FastAPI/pydantic are optional extras
-(`pip install .[api]`); they are imported lazily inside `create_app()`, so this
-module imports fine with only the standard library and the core package. `app` is
-built at import time only when FastAPI is available, so uvicorn can find it; if the
-extra is missing, importing `app` raises a clear instruction instead of a cryptic
-error.
+(`pip install .[api]`). The request model is defined at module scope (guarded by
+availability) rather than inside create_app(): a route's body model must be
+resolvable from the module globals, otherwise FastAPI cannot bind the JSON body
+and every request fails validation with 422. Note there is deliberately NO
+``from __future__ import annotations`` here -- stringised annotations would make
+FastAPI resolve "TriageRequest" by name at route-build time, which reintroduces
+the same 422 bug.
 
-The endpoint takes `{text, source}` and returns the TriageResult as JSON. The
-token map (raw PII) never leaves the process: only verdicts, categories, flags and
-the masked handoff summary are serialised.
+The endpoint takes {text, source} and returns the TriageResult as JSON. The token
+map (raw PII) never leaves the process: only verdicts, categories, flags and the
+masked handoff summary are serialised.
 """
-
-from __future__ import annotations
 
 from dataclasses import asdict
 from datetime import datetime, timezone
 
 from .models import Source, TriageResult
+
+# Build the request model at import time when pydantic is present. Keeping it at
+# module scope (not inside create_app) is what makes FastAPI's body binding work.
+try:
+    from pydantic import BaseModel, Field
+
+    class TriageRequest(BaseModel):
+        text: str = Field(..., description="Raw .eml string or plain form text")
+        source: str = Field("form", description="'eml' or 'form'")
+
+    _HAVE_PYDANTIC = True
+except ImportError:  # pragma: no cover - exercised only without the extra
+    TriageRequest = None  # type: ignore[assignment]
+    _HAVE_PYDANTIC = False
 
 
 def _result_to_dict(result: TriageResult) -> dict:
@@ -35,17 +49,16 @@ def create_app():
     """Build the FastAPI app. Lazy import keeps the core dependency-free."""
     try:
         from fastapi import FastAPI
-        from pydantic import BaseModel, Field
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
         raise RuntimeError(
             "FastAPI is not installed. Install the API extra: pip install .[api]"
         ) from exc
+    if not _HAVE_PYDANTIC:  # pragma: no cover
+        raise RuntimeError(
+            "pydantic is not installed. Install the API extra: pip install .[api]"
+        )
 
     from . import pipeline
-
-    class TriageRequest(BaseModel):
-        text: str = Field(..., description="Raw .eml string or plain form text")
-        source: str = Field("form", description="'eml' or 'form'")
 
     app = FastAPI(
         title="written-channel-triage",

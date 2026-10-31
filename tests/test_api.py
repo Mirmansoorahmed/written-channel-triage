@@ -54,3 +54,16 @@ def test_triage_flags_injection(client):
     body = resp.json()
     assert body["injection"]["detected"] is True
     assert body["policy"]["allowed"] is False
+
+
+def test_triage_source_defaults_to_form(client):
+    # `source` is optional; a body with only `text` must bind (regression guard
+    # for the 422-on-every-request bug where the body model was not resolvable).
+    resp = client.post("/triage", json={"text": "Frage zur Rechnung im Mai."})
+    assert resp.status_code == 200
+
+
+def test_triage_rejects_missing_text(client):
+    # A genuinely invalid body (no `text`) is the one case that should 422.
+    resp = client.post("/triage", json={"source": "form"})
+    assert resp.status_code == 422
