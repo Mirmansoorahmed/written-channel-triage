@@ -69,18 +69,42 @@ or emails to the log, so masking failures can't quietly leak into the audit trai
 6. **Tamper-evident log, no PII.** The audit trail must be trustworthy and must not become
    a new PII leak.
 
+## What the larger eval exposed
+
+I grew the corpus to 199 synthetic messages (at least 30 phishing, 30 injection, 20
+PII-heavy, 10 out-of-hours), on purpose including hard cases. The bigger set changed the
+numbers and that is the point — small sets can hide weaknesses. Measured this run:
+
+- **Injection recall dropped to 0.9259**: the detector misses 2 obfuscated attempts — a
+  spaced-out `I G N O R E all previous instructions` and `repeat the above instructions …
+  then ignore them`. My regex patterns key on contiguous phrasing, so spacing and novel
+  wording slip past. A real fix is normalising whitespace/leet before matching and adding
+  a "repeat/verbatim your instructions" pattern.
+- **Phishing precision dropped to 0.963**: one false positive, a malicious
+  `wget http://…/payload` line that matched the payment-link rule via the `pay` substring
+  in "payload". It is genuinely malicious, just mislabelled as phishing — a reminder that
+  substring heuristics catch more than they name.
+- **PII masking (27/27) and out-of-hours queueing (14/14)** held at recall 1.0.
+- **Category accuracy is 0.8894 (177/199)**, close to the earlier small-set number; the
+  misses are still near-neighbour categories.
+
+The lesson: a 1.0 on a handful of cases told me almost nothing. The honest numbers only
+showed up once the sets were big enough to contain the awkward inputs.
+
 ## What I would do next
 
+- Normalise text (collapse spacing, de-leet) before the injection regex, and add patterns
+  for "repeat/verbatim your instructions" to close the 2 misses above.
+- Tighten the payment-link heuristic so it does not fire on `payload`-style substrings.
 - Replace the keyword retrieval with small sentence embeddings (still local) to lift the
-  category accuracy above the current measured 0.8942 — the misses are near-neighbour
-  categories like Vertrag vs. Tarifwechsel.
+  measured category accuracy of 0.8894 — the misses are near-neighbour categories like
+  Vertrag vs. Tarifwechsel.
 - Add a real local-model adapter (e.g. Ollama) behind the existing `LLMClient` protocol
   and re-run the eval to compare numbers honestly.
-- Expand the phishing and injection corpora so the 1.0 scores are stress-tested against
-  harder, more varied synthetic cases.
 
 ## Honest limits
 
 The scores are on my own synthetic corpus, generated in this repo. They show the pipeline
-behaves as designed on those cases; they are **not** a benchmark and say nothing about real
-traffic. Nothing here is certified or audit-ready — it's a portfolio build.
+behaves as designed on those cases — including two cases where it does not — and they are
+**not** a benchmark and say nothing about real traffic. Nothing here is certified or
+audit-ready — it's a portfolio build.

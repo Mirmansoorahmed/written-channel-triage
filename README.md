@@ -55,19 +55,26 @@ own. A Mermaid version of the diagram is in [`docs/spec/design.md`](docs/spec/de
 ## Measured results
 
 Numbers below come from `eval/results.json`, produced by running the eval over a
-synthetic corpus of **104** German messages. I only report numbers the run produces.
+synthetic corpus of **199** German messages. I only report numbers the run produces.
 
 | Check | Result |
 |---|---|
-| Category accuracy | 0.8942 (93/104) |
-| Phishing detection | precision 1.0, recall 1.0 (tp 6, fp 0, fn 0) |
-| Prompt-injection detection | precision 1.0, recall 1.0 (tp 5, fp 0, fn 0) |
-| PII masking (no raw leak) | recall 1.0 (7/7 PII-heavy cases) |
-| Out-of-hours queueing | recall 1.0 (3/3 cases) |
+| Category accuracy | 0.8894 (177/199) |
+| Phishing detection | precision 0.963, recall 1.0 (tp 26, fp 1, fn 0) |
+| Prompt-injection detection | precision 1.0, recall 0.9259 (tp 25, fp 0, fn 2) |
+| PII masking (no raw leak) | recall 1.0 (27/27 PII-heavy cases) |
+| Out-of-hours queueing | recall 1.0 (14/14 cases) |
 
 These are results on my own synthetic corpus, not a benchmark and not a guarantee on
-real traffic. The remaining 11 category misses are the honest signal of where the simple
-retrieval classifier confuses near-neighbour categories.
+real traffic. The larger corpus deliberately includes hard cases, and it exposed real
+gaps I am reporting as-is:
+- The injection detector misses **2** obfuscated attempts: a spaced-out `I G N O R E …`
+  and a "repeat … then ignore them" phrasing my patterns do not cover (recall 0.9259).
+- Phishing shows **1** false positive: a malicious `wget http://…/payload` line counted
+  as a payment link via the `pay` substring. It is genuinely malicious, just the wrong
+  label, which is why precision is 0.963.
+- The 22 category misses are the honest signal of where the simple retrieval classifier
+  confuses near-neighbour categories (e.g. Vertrag vs. Tarifwechsel).
 
 ## Run it
 
