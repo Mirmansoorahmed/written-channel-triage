@@ -58,6 +58,9 @@ def create_app():
             "pydantic is not installed. Install the API extra: pip install .[api]"
         )
 
+    from fastapi import Response
+
+    from . import observability as obs
     from . import pipeline
 
     app = FastAPI(
@@ -70,6 +73,14 @@ def create_app():
     @app.get("/healthz")
     def healthz() -> dict:
         return {"status": "ok", "ts": datetime.now(timezone.utc).isoformat()}
+
+    @app.get("/metrics")
+    def metrics() -> Response:
+        # Prometheus text exposition from the in-process registry.
+        return Response(
+            content=obs.prometheus_text(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.post("/triage")
     def triage(req: TriageRequest) -> dict:

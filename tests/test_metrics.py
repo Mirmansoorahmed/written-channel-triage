@@ -89,3 +89,33 @@ def test_system_a_offline_classifies():
     label, conf = sys_a.classify("mein internet ist tot, kein anschluss, störung")
     assert label == "Störung"
     assert conf > 0
+
+
+# --- Round 3: calibration / reliability ---
+
+from eval.metrics import reliability_table
+
+
+def test_reliability_perfect_calibration_zero_ece():
+    # In the 0.5 bucket, confidence 0.5 and exactly half correct -> |acc-conf|=0;
+    # in the 1.0 bucket, confidence ~1.0 and all correct -> 0. ECE == 0.
+    conf = [0.5, 0.5, 1.0, 1.0]
+    correct = [True, False, True, True]
+    rel = reliability_table(conf, correct, bins=10)
+    assert rel["ece"] == 0.0
+    assert rel["n"] == 4
+
+
+def test_reliability_overconfident_has_positive_ece():
+    # Always 0.95 confident but only half correct -> ECE around 0.45.
+    conf = [0.95] * 10
+    correct = [True, False] * 5
+    rel = reliability_table(conf, correct, bins=10)
+    assert rel["ece"] is not None and rel["ece"] > 0.4
+
+
+def test_reliability_table_bins_sum_to_n():
+    conf = [0.1, 0.2, 0.85, 0.95, 1.0]
+    correct = [False, True, True, True, True]
+    rel = reliability_table(conf, correct, bins=10)
+    assert sum(row["count"] for row in rel["table"]) == len(conf)

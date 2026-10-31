@@ -128,6 +128,39 @@ def confidence_histogram(values: list[float], bins: int = 10) -> dict:
     }
 
 
+def reliability_table(confidences: list[float], correct: list[bool], bins: int = 10) -> dict:
+    """Binned reliability: for each confidence bucket, mean confidence vs accuracy.
+
+    `confidences[i]` is the model's probability for its prediction on item i;
+    `correct[i]` is whether that prediction was right. Returns per-bin counts, mean
+    confidence and accuracy, plus the Expected Calibration Error (ECE).
+    """
+    edges = [i / bins for i in range(bins + 1)]
+    rows = []
+    n = len(confidences)
+    ece = 0.0
+    for b in range(bins):
+        lo, hi = edges[b], edges[b + 1]
+        # Last bin is closed on the right so p == 1.0 lands somewhere.
+        idx = [i for i in range(n)
+               if (confidences[i] >= lo and (confidences[i] < hi or (b == bins - 1 and confidences[i] <= hi)))]
+        count = len(idx)
+        if count:
+            mean_conf = sum(confidences[i] for i in idx) / count
+            acc = sum(1 for i in idx if correct[i]) / count
+            ece += (count / n) * abs(acc - mean_conf)
+        else:
+            mean_conf = None
+            acc = None
+        rows.append({
+            "bin": [round(lo, 2), round(hi, 2)],
+            "count": count,
+            "mean_confidence": round(mean_conf, 4) if mean_conf is not None else None,
+            "accuracy": round(acc, 4) if acc is not None else None,
+        })
+    return {"bins": bins, "ece": round(ece, 4) if n else None, "n": n, "table": rows}
+
+
 def classification_report(y_true: list[str], y_pred: list[str], labels: list[str] | None = None) -> dict:
     labels = labels or sorted(set(y_true) | set(y_pred))
     pcs = per_class(y_true, y_pred, labels)

@@ -50,3 +50,17 @@ def test_snapshot_is_json_safe():
     obs.reset()
     pipeline.run("Frage zur Rechnung.", source=Source.FORM)
     json.dumps(obs.snapshot())  # must not raise
+
+
+def test_prometheus_text_format():
+    obs.reset()
+    pipeline.run("Frage zur Rechnung.", source=Source.FORM)
+    text = obs.prometheus_text()
+    assert "# TYPE triage_requests_total counter" in text
+    assert "triage_requests_total{" in text  # labelled sample
+    assert "# TYPE triage_request_latency_ms summary" in text
+    assert "triage_request_latency_ms_count" in text
+    # Each non-comment, non-empty line must be "name value" or "name{...} value".
+    for line in text.splitlines():
+        if line and not line.startswith("#"):
+            assert " " in line

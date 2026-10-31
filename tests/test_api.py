@@ -67,3 +67,15 @@ def test_triage_rejects_missing_text(client):
     # A genuinely invalid body (no `text`) is the one case that should 422.
     resp = client.post("/triage", json={"source": "form"})
     assert resp.status_code == 422
+
+
+def test_metrics_prometheus_text(client):
+    # Drive one request so there is something to export, then scrape /metrics.
+    client.post("/triage", json={"text": "Frage zur Rechnung.", "source": "form"})
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/plain")
+    assert "version=0.0.4" in resp.headers["content-type"]
+    body = resp.text
+    assert "triage_requests_total" in body
+    assert "# TYPE triage_request_latency_ms summary" in body

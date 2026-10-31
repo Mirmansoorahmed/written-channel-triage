@@ -101,3 +101,37 @@ def log_event(event: str, **fields) -> None:
     """Emit one structured JSON log line (no raw PII; caller passes only safe fields)."""
     record = {"event": event, **fields}
     _logger.info(json.dumps(record, ensure_ascii=False, sort_keys=True))
+
+
+def prometheus_text() -> str:
+    """Render the snapshot as Prometheus text exposition (version 0.0.4).
+
+    Counters keep their labels; the latency histogram is exposed as summary-style
+    quantiles (p50/p95) plus a _count; gauges are emitted directly. No dependency.
+    """
+    snap = snapshot()
+    lines: list[str] = []
+    for name, series in sorted(snap["counters"].items()):
+        lines.append(f"# TYPE {name} counter")
+        for key, val in sorted(series.items()):
+            if key == "_":
+                lines.append(f"{name} {val}")
+            else:
+                # key is already "{k=v,...}" with unquoted values; quote them.
+                inner = key.strip("{}")
+                parts = [p for p in inner.split(",") if p]
+                labelstr = ",".join(
+                    f'{k}="{v}"' for k, v in (p.split("=", 1) for p in parts)
+                )
+                lines.append(f"{name}{{{labelstr}}} {val}")
+    for name, h in sorted(snap["histograms"].items()):
+        lines.append(f"# TYPE {name} summary")
+        if h.get("p50_ms") is not None:
+            lines.append(f'{name}{{quantile="0.5"}} {h["p50_ms"]}')
+        if h.get("p95_ms") is not None:
+            lines.append(f'{name}{{quantile="0.95"}} {h["p95_ms"]}')
+        lines.append(f"{name}_count {h['count']}")
+    for name, val in sorted(snap["gauges"].items()):
+        lines.append(f"# TYPE {name} gauge")
+        lines.append(f"{name} {val}")
+    return "\n".join(lines) + "\n"
