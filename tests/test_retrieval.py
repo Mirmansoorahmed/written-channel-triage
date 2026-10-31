@@ -15,7 +15,6 @@ np = pytest.importorskip("numpy")
 from triage.retrieval import (  # noqa: E402
     EmbeddingOnlyClient,
     EmbeddingRetriever,
-    INJECTION_EXEMPLARS,
 )
 from triage import categories  # noqa: E402
 
@@ -71,19 +70,6 @@ def test_nearest_category_matches_identical_passage():
     desc = categories.get("Störung").description
     name, score = r.nearest_category(desc)
     assert name == "Störung"
-
-
-def test_injection_similarity_high_for_known_exemplar():
-    r = _retriever()
-    score = r.injection_similarity(INJECTION_EXEMPLARS[0])
-    assert score == pytest.approx(1.0, abs=1e-5)
-
-
-def test_injection_similarity_lower_for_unrelated_text():
-    r = _retriever()
-    high = r.injection_similarity(INJECTION_EXEMPLARS[0])
-    low = r.injection_similarity("Guten Tag, Frage zur Rechnung im Mai.")
-    assert low < high
 
 
 def test_embedding_only_client_uses_top_candidate():

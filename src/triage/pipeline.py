@@ -30,6 +30,8 @@ def run(
     client: LLMClient | None = None,
     audit_path: str | None = None,
     retriever=None,
+    injection_model=None,
+    injection_threshold: float | None = None,
 ) -> TriageResult:
     now = now or datetime.now(timezone.utc)
     _t0 = time.perf_counter()
@@ -47,9 +49,13 @@ def run(
     # v1 regex retrieval for embeddings; `client` can be a real SLM (V4).
     classification = classify.classify(masked.masked_text, client=client, retriever=retriever)
 
-    # Step 4: injection detector on the masked text (normalised first; optional
-    # embedding-similarity check when a retriever is supplied) (V18-V20).
-    inj = injection.detect_injection(masked.masked_text, retriever=retriever)
+    # Step 4: injection detector on the masked text (normalised rules OR a trained
+    # injection-LR probability above the dev-chosen threshold, when supplied).
+    inj = injection.detect_injection(
+        masked.masked_text,
+        injection_model=injection_model,
+        threshold=injection_threshold,
+    )
 
     # Step 5: policy gate. Injection => no tool use; account changes => pending.
     policy = policy_mod.gate(classification.category, inj, now=now)

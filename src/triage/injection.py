@@ -80,26 +80,20 @@ def _match_patterns(text: str) -> list[str]:
     return [name for name, rx in _PATTERNS if rx.search(text)]
 
 
-def embedding_injection_score(text: str, retriever) -> float | None:
-    """Optional similarity of `text` to known injection exemplars (V20).
+def detect_injection(
+    masked_text: str,
+    injection_model=None,
+    threshold: float | None = None,
+) -> InjectionVerdict:
+    """Detect prompt-injection on the masked text (R14-R16, V18-V19; Round 3).
 
-    Returns a cosine-style score in [0, 1], or None when no retriever is given or
-    the retriever has no injection exemplars. Pure delegation so this module keeps
-    no model dependency.
-    """
-    if retriever is None:
-        return None
-    score_fn = getattr(retriever, "injection_similarity", None)
-    if score_fn is None:
-        return None
-    return score_fn(text)
+    Verdict = normalised rules OR (trained injection-LR probability >= threshold).
 
-
-def detect_injection(masked_text: str, retriever=None, embed_threshold: float = 0.80) -> InjectionVerdict:
-    """Detect prompt-injection attempts on the masked text (R14-R16, V18-V20).
-
-    `retriever` is optional; when supplied and it exposes `injection_similarity`,
-    an embedding check can flag novel phrasings the regexes miss.
+    Round 3 removes the fixed 0.80 embedding-similarity cut (which flagged 99/100
+    normal items). Instead, when a trained `injection_model` is supplied, its
+    calibrated probability is compared against `threshold` (chosen on dev and
+    stored in models/manifest.json). With no model supplied the detector is the
+    normalised rules alone -- the offline default.
     """
     norm = normalize(masked_text)
     matched = _match_patterns(norm)
@@ -112,15 +106,25 @@ def detect_injection(masked_text: str, retriever=None, embed_threshold: float = 
             if tag not in matched:
                 matched.append(tag)
 
-    # V20: optional embedding-similarity check.
-    embed_score = embedding_injection_score(norm, retriever)
-    if embed_score is not None and embed_score >= embed_threshold:
-        matched.append(f"embedding_similarity:{round(embed_score, 3)}")
+    rule_hit = bool(matched)
 
-    if matched:
-        return InjectionVerdict(
-            detected=True,
-            reason="matched injection pattern(s): " + ", ".join(matched),
-            matched_rules=matched,
-        )
-    return InjectionVerdict(detected=False, reason="no injection pattern matched")
+    # Trained-model signal (Round 3). Only used when a model + threshold are given.
+    model_prob = None
+    model_hit = False
+    if injection_model is not None and threshold is not None:
+        try:
+            model_prob = float(injection_model.proba(norm))
+        except Exception:  # noqa: BLE001 - a model failure must not crash triage
+            model_prob = None
+        if model_prob is not None and model_prob >= threshold:
+            model_hit = True
+            matched.append(f"injection_lr>={threshold}:{round(model_prob, 3)}")
+
+    detected = rule_hit or model_hit
+    if detected:
+        reason = "matched injection signal(s): " + ", ".join(matched)
+    else:
+        reason = "no injection rule matched"
+        if model_prob is not None:
+            reason += f" (lr prob {round(model_prob, 3)} < {threshold})"
+    return InjectionVerdict(detected=detected, reason=reason, matched_rules=matched)

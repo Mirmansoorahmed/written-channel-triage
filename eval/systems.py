@@ -72,6 +72,69 @@ class SystemC:
         return getattr(self._client, "stats", {})
 
 
+class SystemD:
+    """Embeddings + trained LogisticRegression (Round 3).
+
+    The calibrated category model from triage/learned.py. Reports the calibrated
+    probability of its chosen label as the confidence, which the harness uses for
+    ECE/reliability and which System E routes on.
+    """
+
+    key = "D_embeddings_lr"
+    label = "embeddings + LR (trained)"
+
+    def __init__(self, category_model):
+        self._model = category_model
+
+    def classify(self, masked_text: str) -> tuple[str, float]:
+        return self._model.predict(masked_text)
+
+
+class SystemE:
+    """System D, escalating to the SLM only when D's calibrated confidence is below
+    a threshold (default 0.5). Reports the SLM call rate.
+
+    This is the cost/quality trade the review asked for: trust the cheap trained
+    head when it is confident, pay for the SLM only on the uncertain tail.
+    """
+
+    key = "E_lr_then_slm"
+    label = "LR, SLM on low confidence"
+
+    def __init__(self, category_model, retriever, slm_client=None,
+                 model: str = "qwen2.5:1.5b-instruct", threshold: float = 0.5):
+        self._model = category_model
+        self._retriever = retriever
+        self._client = slm_client or OllamaClient(model=model, strict=True)
+        self.threshold = threshold
+        self.calls = 0
+        self.slm_calls = 0
+
+    def classify(self, masked_text: str) -> tuple[str, float]:
+        self.calls += 1
+        label, prob = self._model.predict(masked_text)
+        if prob >= self.threshold:
+            return label, prob
+        # Low confidence -> escalate to the SLM over the retriever's candidates.
+        self.slm_calls += 1
+        result = classify_mod.classify(
+            masked_text, client=self._client, retriever=self._retriever
+        )
+        return result.category, result.confidence
+
+    @property
+    def slm_call_rate(self) -> float:
+        return round(self.slm_calls / self.calls, 4) if self.calls else 0.0
+
+    @property
+    def stats(self) -> dict:
+        s = dict(getattr(self._client, "stats", {}))
+        s["slm_call_rate"] = self.slm_call_rate
+        s["escalations"] = self.slm_calls
+        s["total"] = self.calls
+        return s
+
+
 def build_real_systems(model: str = "qwen2.5:1.5b-instruct"):
     """Build B and C with real models. Returns (systems, retriever) or raises
     ImportError/RuntimeError if the model libraries are not installed, or if the
@@ -86,6 +149,30 @@ def build_real_systems(model: str = "qwen2.5:1.5b-instruct"):
     probe = OllamaClient(model=model, strict=True)
     probe.classify("Testanfrage zur Rechnung.", [("Rechnung", 0.5)])
     return [SystemB(retriever), SystemC(retriever, model=model)], retriever
+
+
+def build_learned_systems(models_dir: str, model: str = "qwen2.5:1.5b-instruct",
+                          e_threshold: float = 0.5):
+    """Build D (and E) from saved artifacts. Raises if artifacts/libs are missing
+    so the harness can mark them pending rather than fabricate a run.
+    """
+    import os
+
+    from triage import learned
+    from triage.retrieval import EmbeddingRetriever
+
+    embedder = learned.E5Embedder()
+    cat_model = learned.load_category_model(
+        os.path.join(models_dir, "category_lr.joblib"), embedder
+    )
+    systems = [SystemD(cat_model)]
+    # E needs both the LR and a working SLM + retriever. If the SLM is down, the
+    # strict probe raises and E is marked pending by the caller.
+    retriever = EmbeddingRetriever().build()
+    probe = OllamaClient(model=model, strict=True)
+    probe.classify("Testanfrage zur Rechnung.", [("Rechnung", 0.5)])
+    systems.append(SystemE(cat_model, retriever, model=model, threshold=e_threshold))
+    return systems, cat_model
 
 
 def build_offline_systems():
