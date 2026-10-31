@@ -47,45 +47,72 @@ injection, a phishing false positive) and adds a post-model PII re-check.
 
 ## Results
 
-Numbers come only from a run. The eval compares three systems — **A** v1
-regex/keyword, **B** embeddings-only, **C** embeddings + SLM — on the **held-out test
-split** (split by template family) and separately on a **hand-varied unseen set**
-(`eval/unseen/`). The tables below are **generated** from
+Numbers come only from a run. The eval compares five systems — **A** v1 regex/keyword,
+**B** embeddings-only, **C** embeddings + SLM, **D** embeddings + trained
+LogisticRegression, **E** D with the SLM only on low-confidence items — on the
+**held-out test split** (split by template family) and separately on a **hand-varied
+unseen set** (`eval/unseen/`, 200+ items). All tables below are **generated** from
 [`eval/results-v2.json`](eval/results-v2.json) by `make docs`; nothing here is typed by
-hand.
+hand, and every real-model row stays "pending real run" until the models are run.
 
 <!-- BEGIN:results-table -->
 | system | split | accuracy | macro-F1 | latency p50 / p95 ms |
 |---|---|---|---|---|
-| A — v1 regex/keyword | test (held out) | 0.8215 | 0.7975 | 0.0700 / 0.0900 |
-| A — v1 regex/keyword | unseen (hand-varied) | 0.5000 | 0.4524 | 0.0600 / 0.0800 |
-| B — embeddings-only | — | pending real run | pending real run | pending real run |
-| C — embeddings + SLM | — | pending real run | pending real run | pending real run |
+| A - v1 regex/keyword | - | pending real run | pending real run | pending real run |
+| B - embeddings-only | - | pending real run | pending real run | pending real run |
+| C - embeddings + SLM | - | pending real run | pending real run | pending real run |
+| D - embeddings + LR | - | pending real run | pending real run | pending real run |
+| E - LR, SLM on low conf | - | pending real run | pending real run | pending real run |
 <!-- END:results-table -->
 
-Detectors (phishing / injection / PII masking checked against the generator's
-ground-truth PII values, not the masker's own regex):
+Detectors. PII masking is checked with a **fuzzy ground-truth** comparison (partial
+ratio ≥ 0.85, IBAN fragment ≥ 8 chars) against the values the generator actually placed,
+not the masker's own regex:
 
 <!-- BEGIN:detector-table -->
 | detector | split | precision | recall |
 |---|---|---|---|
-| phishing | test | 1.0000 | 1.0000 |
-| injection | test | 1.0000 | 1.0000 |
-| PII masking (ground-truth, no leak) | test | — | 1.0000 |
-| phishing | unseen | 0.5000 | 0.6667 |
-| injection | unseen | 1.0000 | 0.2500 |
-| PII masking (ground-truth, no leak) | unseen | — | 1.0000 |
+| (all) | test | pending real run | pending real run |
+| (all) | unseen | pending real run | pending real run |
 <!-- END:detector-table -->
 
-Systems B and C need the real models, so their rows stay **pending real run** until a
-machine with Ollama + the embeddings model produces them — this repo never invents a
-number. The split is by template family, so no test template appears in train; a
-leakage gate (`make overlap-check`) fails the build if any test item is ≥0.9 similar to
-a train/example item. The large **test vs unseen** gap is reported on purpose: it is the
-honest measure of how well each system generalises to phrasings it has never seen. The
-confusion matrix (PNG + CSV) and per-split
-[`docs/error-analysis.md`](docs/error-analysis.md) come from the same run; dataset
-distributions are in [`docs/datasheet.md`](docs/datasheet.md).
+Calibration (Expected Calibration Error on the test split). System C's self-reported
+confidence is near-constant, so it is reported honestly and **not** used to route;
+System D is calibrated on dev and its probability drives the human-review threshold
+([ADR 0007](docs/adr/0007-calibrated-review-threshold.md)):
+
+<!-- BEGIN:calibration-table -->
+| system | ECE (test) | note |
+|---|---|---|
+| A - v1 regex/keyword | pending real run | - |
+| B - embeddings-only | pending real run | - |
+| C - embeddings + SLM | pending real run | - |
+| D - embeddings + LR | pending real run | - |
+| E - LR, SLM on low conf | pending real run | - |
+<!-- END:calibration-table -->
+
+Cost per 1,000 messages is derived from measured CPU seconds and a clearly labelled VM
+price assumption:
+
+<!-- BEGIN:cost-table -->
+VM price assumption: **$0.192/h** for 4 vCPU / 16 GB (example AWS m6i.xlarge on-demand, eu-central-1 (assumption, 2025)).
+
+| system | CPU s / item | cost per 1k msg (USD) | peak RSS (MB) |
+|---|---|---|---|
+| A - v1 regex/keyword | pending real run | pending real run | pending real run |
+| B - embeddings-only | pending real run | pending real run | pending real run |
+| C - embeddings + SLM | pending real run | pending real run | pending real run |
+| D - embeddings + LR | pending real run | pending real run | pending real run |
+| E - LR, SLM on low conf | pending real run | pending real run | pending real run |
+<!-- END:cost-table -->
+
+The split is by template family, so no test template appears in train; a leakage gate
+(`make overlap-check`) fails the build if any test **or unseen** item is ≥0.9 similar to
+a train, example or generator-template string. The large **test vs unseen** gap is
+reported on purpose: it is the honest measure of how well each system generalises to
+phrasings it has never seen. The confusion matrices (PNG + CSV), reliability PNGs and
+per-split [`docs/error-analysis.md`](docs/error-analysis.md) come from the same run;
+dataset distributions are in [`docs/datasheet.md`](docs/datasheet.md).
 
 ## Architecture
 
@@ -111,12 +138,16 @@ make eval                 # offline eval: System A measured, B/C pending real ru
 
 ```bash
 # 1. Install extras
-pip install -e ".[models,eval,api]"
+pip install -e ".[models,eval,learned,api]"
 # 2. Start Ollama and pull the default model
 ollama serve &
 ollama pull qwen2.5:1.5b-instruct
-# 3. Run all three systems; writes results-v2.json, confusion PNG/CSV, error analysis
+# 3. Train the LR heads on train.jsonl (writes models/ + manifest.json)
+make train
+# 4. Run all five systems; writes results-v2.json, confusion/reliability PNG+CSV,
+#    error analysis. Then regenerate the doc tables from the results.
 make eval-real
+make docs
 ```
 
 **As a service (Docker):**
@@ -126,18 +157,17 @@ docker compose up --build
 docker compose exec ollama ollama pull qwen2.5:1.5b-instruct
 curl -s localhost:8000/triage -H 'content-type: application/json' \
      -d '{"text":"Mein Internet ist tot, Störung.","source":"form"}'
+curl -s localhost:8000/metrics        # Prometheus text exposition
 ```
-
-When `make eval-real` finishes, paste the contents of `eval/results-v2.json` (and the
-generated PNG/CSV) back and they get committed — the pending rows above are filled from
-that file, nothing is typed by hand.
 
 ## Layout
 
 ```
-src/triage/   pipeline modules + normalize.py, retrieval.py, api.py (v2), OllamaClient
-data/         seeded generator + train/dev/test.jsonl + datasheet generator
-eval/         v1 harness + v2 harness (three systems), metrics, results-v2.json
+src/triage/   pipeline modules + normalize, retrieval, learned (LR), api, observability
+data/         seeded generator + train/dev/test.jsonl + datasheet + overlap_check
+eval/         harness_v2 (5 systems), metrics, systems, train_models, pii_leak_check,
+              unseen/ (200+ hand-varied items), results-v2.json
+models/       trained LR artifacts + manifest.json (written by `make train`)
 docs/         architecture, threat-model, datasheet, error-analysis, adr/, spec/
 Dockerfile, docker-compose.yml, Makefile
 LEARNINGS.md  the concepts, tools, and the "why" behind each decision

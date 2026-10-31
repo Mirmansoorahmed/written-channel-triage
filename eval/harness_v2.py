@@ -446,8 +446,48 @@ def run_eval(real: bool | None = None, out_dir: str | None = None,
     }
 
 
+def pending_results() -> dict:
+    """A fully-pending results file for the COMMITTED state.
+
+    Per the run rules, every metric/cost/calibration table says 'pending real run'
+    until the maintainer runs `TRIAGE_EVAL_REAL=1 ... eval.harness_v2` on a machine
+    with the models. This is what we commit so no number in the repo is unsanctioned;
+    a local `make eval` / `make eval-real` overwrites it with measured numbers.
+    """
+    splits = _load_splits()
+    return {
+        "note": NOTE + " COMMITTED STATE: pending real run -- run the harness locally "
+                "to populate real numbers (make eval / make eval-real).",
+        "run_mode": "pending real run (committed placeholder)",
+        "sizes": {s: len(splits[s]) for s in SPLITS},
+        "category_families": sorted(CATEGORY_FAMILIES),
+        "systems": {key: {"status": "pending real run"}
+                    for key, _ in [("A_v1_regex", 0), ("B_embeddings_only", 0),
+                                   ("C_embeddings_slm", 0), ("D_embeddings_lr", 0),
+                                   ("E_lr_then_slm", 0)]},
+        "detectors": {s: {"status": "pending real run"} for s in SPLITS},
+        "pii_leak_check": {"status": "pending real run"},
+        "fallback_limit": FALLBACK_LIMIT,
+    }
+
+
 def main() -> None:
-    results = run_eval()
+    # `--pending` writes the committed placeholder (all tables pending). A plain
+    # run measures what it can (System A offline; B/C/D/E pending without models).
+    import sys
+
+    if "--pending" in sys.argv:
+        results = pending_results()
+        # Also write a pending error-analysis so the committed docs are consistent.
+        os.makedirs(os.path.dirname(DEFAULT_ERROR_ANALYSIS_PATH) or ".", exist_ok=True)
+        with open(DEFAULT_ERROR_ANALYSIS_PATH, "w", encoding="utf-8") as f:
+            f.write("# Error analysis (v2, Round 3)\n\n"
+                    "**pending real run** — run `make eval` (System A) or "
+                    "`TRIAGE_EVAL_REAL=1 ... eval.harness_v2` to populate per-split "
+                    "misclassifications (dev, test, unseen). No numbers are committed "
+                    "until a run produces them.\n")
+    else:
+        results = run_eval()
     with open(DEFAULT_RESULTS_PATH, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
         f.write("\n")
@@ -461,7 +501,9 @@ def main() -> None:
         uns = block["by_split"]["unseen"]
         print(f"  {key}: test acc={ot.get('accuracy')} macroF1={ot.get('macro_f1')} "
               f"| unseen acc={uns.get('accuracy')} | cost {block['cost']['cpu_seconds_per_item']}s/item")
-    print(f"pii leak check: {results['pii_leak_check']['items_with_leak']} items leak")
+    plc = results.get("pii_leak_check", {})
+    if "items_with_leak" in plc:
+        print(f"pii leak check: {plc['items_with_leak']} items leak")
     print(f"wrote {os.path.relpath(DEFAULT_RESULTS_PATH, ROOT)}")
 
 

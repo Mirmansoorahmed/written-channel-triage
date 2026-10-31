@@ -144,24 +144,44 @@ spiking (attack campaign), audit chain verification failing (tampering).
 
 ## 7. Cost table (CPU, pending real run)
 
-Costs are a function of measured SLM latency on CPU. The latency numbers come from the
-eval run; until a real-model run fills them in, this table is **pending real run** and
-contains no invented values.
-
-This table is **generated** from `eval/results-v2.json` by `make docs`:
+Cost is a function of measured CPU time per item, not guessed. The harness records CPU
+seconds per item (`time.process_time`) and peak RSS (`resource.getrusage`); the table is
+**generated** from `eval/results-v2.json` by `make docs`. Cost per 1,000 messages =
+`cpu_seconds_per_item × 1000 × VM_hourly_price / (3600 × vCPUs)`. The VM price is an
+**assumption**, labelled with its source and date, that you can replace.
 
 <!-- BEGIN:cost-table -->
-| system | p50 latency ms | p95 latency ms | relative cost note |
+VM price assumption: **$0.192/h** for 4 vCPU / 16 GB (example AWS m6i.xlarge on-demand, eu-central-1 (assumption, 2025)).
+
+| system | CPU s / item | cost per 1k msg (USD) | peak RSS (MB) |
 |---|---|---|---|
-| A — v1 regex/keyword | 0.0700 | 0.0900 | ~free (CPU, no model) |
-| B — embeddings-only | pending real run | pending real run | one embedding encode per request |
-| C — embeddings + SLM | pending real run | pending real run | one encode + one SLM generate |
+| A - v1 regex/keyword | pending real run | pending real run | pending real run |
+| B - embeddings-only | pending real run | pending real run | pending real run |
+| C - embeddings + SLM | pending real run | pending real run | pending real run |
+| D - embeddings + LR | pending real run | pending real run | pending real run |
+| E - LR, SLM on low conf | pending real run | pending real run | pending real run |
 <!-- END:cost-table -->
 
-Once the real run is in, the cost column is derived as (p95 latency × vCPU-hour price) /
-requests-per-hour — all from measured latency, no guesses.
+## 8. Calibration and the human-review threshold
 
-## 8. Related docs
+Reliability (Expected Calibration Error, 10 bins) is reported for the systems that emit a
+probability. System C's self-reported confidence is near-constant (it clusters at ~0.95),
+so its ECE is reported honestly and C is **not** routed on confidence. System D is
+calibrated on dev with `CalibratedClassifierCV` (sigmoid), and its calibrated probability
+drives the human-review threshold. The threshold, method and expected review rate are
+documented in [ADR 0007](adr/0007-calibrated-review-threshold.md).
+
+<!-- BEGIN:calibration-table -->
+| system | ECE (test) | note |
+|---|---|---|
+| A - v1 regex/keyword | pending real run | - |
+| B - embeddings-only | pending real run | - |
+| C - embeddings + SLM | pending real run | - |
+| D - embeddings + LR | pending real run | - |
+| E - LR, SLM on low conf | pending real run | - |
+<!-- END:calibration-table -->
+
+## 9. Related docs
 
 - Design rationale: [`docs/spec/v2-design.md`](spec/v2-design.md)
 - ADRs: [`docs/adr/`](adr/)
