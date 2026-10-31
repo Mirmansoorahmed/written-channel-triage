@@ -1,0 +1,249 @@
+{
+  "note": "Synthetic data only; fictional NordTel GmbH. Not a certification. All numbers are produced by this eval run over the held-out test split.",
+  "run_mode": "offline subset (System A only)",
+  "test_split_size": 272,
+  "systems": {
+    "A_v1_regex": {
+      "accuracy": 0.8309,
+      "macro_f1": 0.8086,
+      "per_class": {
+        "Beschwerde": {
+          "precision": 0.8636,
+          "recall": 0.8636,
+          "f1": 0.8636,
+          "support": 22
+        },
+        "Datenschutz": {
+          "precision": 1.0,
+          "recall": 0.95,
+          "f1": 0.9744,
+          "support": 20
+        },
+        "Kündigung": {
+          "precision": 1.0,
+          "recall": 0.45,
+          "f1": 0.6207,
+          "support": 20
+        },
+        "Rechnung": {
+          "precision": 1.0,
+          "recall": 0.9538,
+          "f1": 0.9764,
+          "support": 65
+        },
+        "Sonstiges": {
+          "precision": 0.8286,
+          "recall": 0.7073,
+          "f1": 0.7632,
+          "support": 41
+        },
+        "Störung": {
+          "precision": 0.6552,
+          "recall": 0.8636,
+          "f1": 0.7451,
+          "support": 22
+        },
+        "Tarifwechsel": {
+          "precision": 1.0,
+          "recall": 0.7273,
+          "f1": 0.8421,
+          "support": 22
+        },
+        "Technik-Setup": {
+          "precision": 1.0,
+          "recall": 0.7,
+          "f1": 0.8235,
+          "support": 20
+        },
+        "Umzug": {
+          "precision": 0.5405,
+          "recall": 1.0,
+          "f1": 0.7018,
+          "support": 20
+        },
+        "Vertrag": {
+          "precision": 0.6552,
+          "recall": 0.95,
+          "f1": 0.7755,
+          "support": 20
+        }
+      },
+      "confusion_matrix": {
+        "labels": [
+          "Beschwerde",
+          "Datenschutz",
+          "Kündigung",
+          "Rechnung",
+          "Sonstiges",
+          "Störung",
+          "Tarifwechsel",
+          "Technik-Setup",
+          "Umzug",
+          "Vertrag"
+        ],
+        "matrix": [
+          [
+            19,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            3,
+            0
+          ],
+          [
+            0,
+            19,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            0,
+            0,
+            9,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            10
+          ],
+          [
+            0,
+            0,
+            0,
+            62,
+            0,
+            0,
+            0,
+            0,
+            3,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            29,
+            7,
+            0,
+            0,
+            4,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            2,
+            19,
+            0,
+            0,
+            0,
+            0
+          ],
+          [
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            16,
+            0,
+            5,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            2,
+            3,
+            0,
+            14,
+            1,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            20,
+            0
+          ],
+          [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            1,
+            19
+          ]
+        ]
+      },
+      "latency": {
+        "n": 272,
+        "p50_ms": 0.07,
+        "p95_ms": 0.09,
+        "mean_ms": 0.07
+      },
+      "status": "measured",
+      "label": "v1 regex/keyword",
+      "confusion_png": "not rendered (matplotlib absent)"
+    },
+    "B_embeddings_only": {
+      "status": "pending real run"
+    },
+    "C_embeddings_slm": {
+      "status": "pending real run"
+    }
+  },
+  "detectors": {
+    "phishing": {
+      "tp": 28,
+      "fp": 0,
+      "fn": 0,
+      "tn": 244,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "injection": {
+      "tp": 24,
+      "fp": 0,
+      "fn": 0,
+      "tn": 248,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "pii_masking": {
+      "cases": 59,
+      "no_leak": 59,
+      "recall": 1.0
+    }
+  }
+}
