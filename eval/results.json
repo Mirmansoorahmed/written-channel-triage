@@ -1,0 +1,35 @@
+{
+  "note": "Synthetic data only; fictional telco NordTel GmbH. Not a certification. All numbers are produced by this eval run.",
+  "corpus_size": 199,
+  "checks": {
+    "phishing_detection": {
+      "tp": 26,
+      "fp": 1,
+      "fn": 0,
+      "precision": 0.963,
+      "recall": 1.0
+    },
+    "injection_detection": {
+      "tp": 25,
+      "fp": 0,
+      "fn": 2,
+      "precision": 1.0,
+      "recall": 0.9259
+    },
+    "pii_masking": {
+      "cases": 27,
+      "no_leak": 27,
+      "recall": 1.0
+    },
+    "out_of_hours_queue": {
+      "cases": 14,
+      "queued": 14,
+      "recall": 1.0
+    }
+  },
+  "category_accuracy": {
+    "correct": 177,
+    "total": 199,
+    "accuracy": 0.8894
+  }
+}
