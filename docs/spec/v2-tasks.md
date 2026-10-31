@@ -76,7 +76,7 @@ and its tests pass locally (stdlib + pytest, no network).
       `LEARNINGS.md` v2 section; extend CI with the offline v2 harness subset.
       _V30, V31._
 
-- [ ] 13. Open PR `v2` → `main`.
+- [x] 13. Open PR `v2` → `main`.
       Plain commit messages, first-person engineer voice, no tool names, no
       Co-authored-by. Numbers stay "pending real run" until the real-model outputs are
       pasted back and committed.
