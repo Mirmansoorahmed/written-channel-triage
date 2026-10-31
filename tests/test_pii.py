@@ -150,3 +150,38 @@ def test_masks_multiword_street_name():
     r = mask("Umzug: neue Anschrift Am Alten Markt 3, 04109 Leipzig.")
     assert "Am Alten Markt 3" not in r.masked_text
     assert "[[ADDRESS_1]]" in r.masked_text
+
+
+# --- Round 3: review examples must all be masked (fuzzy ground-truth) ---
+
+from triage.pii import fuzzy_ground_truth_leaks
+
+
+def test_round3_review_examples_no_leak():
+    cases = [
+        ("Bitte stornieren, IBAN ED44 5001 0517 5407 3249 31.", "ED44 5001 0517 5407 3249 31"),
+        ("Adresse: Beisspieltsraße 60, 10115 Berlin", "Beisspieltsraße 60, 10115 Berlin"),
+        ("Kontakt kunde882@example.d", "kunde882@example.d"),
+        ("Mit freundlichen Grüßen\nFinn uMsterfrau", "Finn uMsterfrau"),
+    ]
+    for text, truth in cases:
+        masked = mask(text).masked_text
+        assert not fuzzy_ground_truth_leaks(masked, [truth]), f"leaked: {truth!r} -> {masked!r}"
+
+
+def test_hyphenated_contract_number_masked():
+    masked = mask("Vertragsnr 55-99-1234, bitte prüfen.").masked_text
+    assert not fuzzy_ground_truth_leaks(masked, ["55-99-1234"])
+
+
+def test_fuzzy_leak_iban_fragment_counts():
+    # 8+ surviving IBAN characters count as a leak even if the rest is masked.
+    masked = "Rest [[IBAN_1]] aber 5001051754070 blieb stehen"
+    leaks = fuzzy_ground_truth_leaks(masked, ["DE44 5001 0517 5407 3249 31"])
+    assert leaks and leaks[0]["reason"].startswith("iban_fragment")
+
+
+def test_signature_block_not_oversensitive():
+    # A normal closing sentence must NOT be masked as a name.
+    m = mask("Vielen Dank für Ihre Hilfe heute.").masked_text
+    assert "Vielen Dank" in m or "[[NAME" not in m

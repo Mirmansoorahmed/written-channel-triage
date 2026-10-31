@@ -203,21 +203,52 @@ def _maybe_en(template: str, rng: random.Random) -> str:
 def _compose_body(
     category: str, template_idx: int, tone: str, rng: random.Random, with_pii: bool
 ) -> tuple[str, list[str]]:
-    """Return (text, pii_truth). pii_truth is the raw PII values actually placed."""
+    """Return (text, pii_truth).
+
+    Round 3: typos are applied to the text, and some PII spans may get typo'd too.
+    We therefore record BOTH the pre-typo value and the post-typo rendering of each
+    PII value, so the leak check can look for either. Each PII value is typo'd as a
+    unit (with its own small rng draw) and substituted back, then the surrounding
+    prose is typo'd separately -- so we always know the exact post-typo string.
+    """
     template = TEMPLATES[category][template_idx]
     body = _maybe_en(template, rng)
     greeting = rng.choice(GREETINGS[tone])
     first, last = rng.choice(FIRST_NAMES), rng.choice(LAST_NAMES)
     name = f"{first} {last}"
     closing = rng.choice(CLOSINGS[tone])
-    pii_truth: list[str] = [name]  # the signature name is PII
+
+    pii_values: list[str] = [name]
     pii_line = ""
     if with_pii:
         block, block_truth = _pii_block(category, rng)
         pii_line = "\n" + block
-        pii_truth.extend(block_truth)
+        pii_values.extend(block_truth)
+
     text = f"{greeting}\n{body}{pii_line}\n\n{closing}\n{name}"
-    return _typo(text, rng), pii_truth
+
+    # Typo each PII value in place FIRST (so the text contains the exact post-typo
+    # string), recording both pre- and post-typo forms, then typo the rest of the
+    # prose. Protecting the substituted spans from the second pass keeps the
+    # recorded post-typo value identical to what survives in the text.
+    pii_truth: list[str] = []
+    protected: list[str] = []
+    for v in pii_values:
+        post = _typo(v, rng, rate=0.04)
+        pii_truth.append(v)
+        if post != v:
+            pii_truth.append(post)
+        # Replace the first occurrence of the exact value with its typo'd form.
+        if post != v and v in text:
+            text = text.replace(v, "\x00%d\x00" % len(protected), 1)
+            protected.append(post)
+        else:
+            protected.append(None)  # no substitution needed
+    text = _typo(text, rng)  # typo the surrounding prose (placeholders are digit-wrapped, safe)
+    for i, post in enumerate(protected):
+        if post is not None:
+            text = text.replace("\x00%d\x00" % i, post)
+    return text, pii_truth
 
 
 def _eml(sender: str, subject: str, auth: str, body: str) -> str:
@@ -352,7 +383,8 @@ def _header() -> dict:
         "split_by": "template_family",
         "note": "Synthetic data only; fictional NordTel GmbH. Generated in-repo. "
                 "Not a certification. No real brand, person, or data. Split is by "
-                "template family: a template appears in exactly one split.",
+                "template family: a template appears in exactly one split. pii_truth "
+                "lists each PII value in BOTH its pre-typo and post-typo form.",
     }
 
 

@@ -44,14 +44,14 @@ _PHONE = re.compile(r"(?<!\w)(?:\+49|0)[\d\s/\-]{6,}\d")
 # tokens) followed by an id of >=5 digits. We also keep a regex for the common
 # spellings as a fast path, plus a bare long-digit fallback.
 _CUSTOMER_LABELLED = re.compile(
-    r"(?:kund\w*|kd\.?-?\s*nr\.?|vertrags?\w*)\s*[:.]?\s*([A-Za-z]?\d{5,})",
+    r"(?:kund\w*|kd\.?-?\s*nr\.?|vertrags?\w*)\s*[:.]?\s*([A-Za-z]?\d[\d\-.]{4,})",
     re.IGNORECASE,
 )
 _CUSTOMER_BARE = re.compile(r"(?<!\d)([A-Za-z]?\d{8,})(?!\d)")
 # Any "<label>: <id>" where the label is close (edit distance <= 2) to a known PII
-# label. Catches "Kundennummr: 12345", "Vretragsnummer 998", etc.
+# label. Catches "Kundennummr: 12345", "Vretragsnummer 998", "Vertragsnr 55-99-1234".
 _LABELLED_ID = re.compile(
-    r"([A-Za-zÄÖÜäöüß.\-]{3,15})\s*[:.]?\s*([A-Za-z]?\d{4,}(?:[ \-]?\d+)*)",
+    r"([A-Za-zÄÖÜäöüß.\-]{3,15})\s*[:.]?\s*([A-Za-z]?\d[\d\-.]{3,}(?:[ \-]?\d+)*)",
 )
 _PII_LABELS = ("kundennummer", "kundennr", "kd.-nr", "kdnr", "vertragsnummer",
                "vertragsnr", "nummer", "nr")
@@ -64,18 +64,19 @@ _PII_LABELS = ("kundennummer", "kundennr", "kd.-nr", "kdnr", "vertragsnummer",
 _ADDRESS = re.compile(
     r"\b(?:[A-ZÄÖÜ][a-zäöüß]+\s+){0,3}"
     r"(?:"
-    # compound ending in a (possibly typo'd) street suffix
-    r"[A-ZÄÖÜ][a-zäöüß]*(?:stra[sß]?[sß]?e?|str\.?|t?sra[sß]e|weg|platz|allee|gasse|ring|markt|damm|ufer)"
+    # compound ending in a (possibly typo'd) street suffix. The "straße" root is
+    # matched loosely so dropped/swapped letters (traße, strase, tsraße) still hit.
+    r"[A-ZÄÖÜ][a-zäöüß]*(?:s?t?ra[sß]{0,2}e|str\.?|weg|platz|allee|gasse|ring|markt|damm|ufer)"
     r"|"
     r"(?:Markt|Damm|Ufer|Platz|Ring|Allee|Weg)"
     r")"
     r"\s*\d+[a-z]?"
-    r"(?:,?\s*\d{4,5}\s+[A-ZÄÖÜ][a-zäöüß]+)?",
+    r"(?:,?\s*\d{4,5}\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+)?",
     re.IGNORECASE,
 )
-# A standalone "PLZ Ort" (5-digit postcode + capitalised city) so a city survives
-# even if the street match stops early.
-_PLZ_ORT = re.compile(r"\b\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+(?:[- ][A-ZÄÖÜ][a-zäöüß]+)?")
+# A standalone "PLZ Ort" (4-5 digit postcode + a city token, typo-tolerant first
+# letter) so a city survives even if the street match stops early.
+_PLZ_ORT = re.compile(r"\b\d{4,5}\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+(?:[- ][A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+)?")
 
 
 def _levenshtein(a: str, b: str) -> int:
@@ -150,21 +151,50 @@ _SIG_NAME_LINE = re.compile(
 )
 
 
+# A short trailing line that looks like a 2-3 word personal name even if a typo
+# lower-cased an initial ("Sophie eBrg"). Tokens are alphabetic, each 2-20 chars,
+# no digits/@/URL. Conservative: only used on the final line after a blank or a
+# short closing line, so ordinary sentences are not masked.
+_NAMEISH_LINE = re.compile(
+    r"^\s*((?:Dr\.?\s+|Prof\.?\s+)?[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{1,19}"
+    r"(?:\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{1,19}){1,2})\s*$"
+)
+# Words that commonly end a message but are NOT names, so we don't mask them.
+_NOT_A_NAME = {
+    "danke", "grüße", "gruesse", "grüsse", "regards", "mfg", "lg", "hallo",
+    "tschüss", "ciao", "cheers", "thanks", "bye",
+}
+
+
 def _mask_trailing_signature(
     text: str, counter: dict[str, int], token_map: dict[str, str]
 ) -> str:
     """Mask a personal name sitting alone on the last non-empty line (signature)."""
     lines = text.split("\n")
-    # Find the last non-empty line.
     idx = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
     if idx is None:
         return text
-    m = _SIG_NAME_LINE.match(lines[idx])
-    if not m:
+    line = lines[idx]
+    if "[[" in line:
         return text
-    name = m.group(1)
-    # Don't mask if it already contains a placeholder.
-    if "[[" in name:
+
+    name = None
+    m = _SIG_NAME_LINE.match(line)
+    if m:
+        name = m.group(1)
+    else:
+        # Typo-tolerant fallback: a short name-ish final line whose tokens are not
+        # common sign-off words, preceded by a blank/short line (a signature block).
+        m2 = _NAMEISH_LINE.match(line)
+        if m2:
+            cand = m2.group(1)
+            tokens = cand.lower().replace("-", " ").split()
+            prev = lines[idx - 1].strip() if idx > 0 else ""
+            looks_like_block = (prev == "" or len(prev.split()) <= 3)
+            not_signoff = not any(t in _NOT_A_NAME for t in tokens)
+            if looks_like_block and not_signoff and 2 <= len(tokens) <= 3:
+                name = cand
+    if not name:
         return text
     counter["NAME"] = counter.get("NAME", 0) + 1
     placeholder = f"[[NAME_{counter['NAME']}]]"
