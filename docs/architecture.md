@@ -120,18 +120,24 @@ flowchart LR
  "policy_allowed":true,"queued":false,"slm_fallback":null}
 ```
 
-**Metric names** (what I would export to Prometheus):
+**Metric names.** These are implemented in `src/triage/observability.py` and
+incremented by `pipeline.run()` on every request (not aspirational — a Prometheus
+exporter would read `observability.snapshot()`):
 
-| metric | type | meaning |
-|---|---|---|
-| `triage_requests_total` | counter | requests by `source`, `category` |
-| `triage_injection_detected_total` | counter | injection hits by rule |
-| `triage_phishing_suspected_total` | counter | phishing hits by rule |
-| `triage_policy_blocked_total` | counter | account-changing requests parked for a human |
-| `triage_slm_fallback_total` | counter | SLM calls that fell back to the baseline |
-| `triage_pii_leak_blocked_total` | counter | SLM outputs with raw PII that were dropped |
-| `triage_request_latency_ms` | histogram | end-to-end latency, labelled by system |
-| `triage_queue_depth` | gauge | out-of-hours queue depth |
+| metric | type | emitted by | meaning |
+|---|---|---|---|
+| `triage_requests_total` | counter | pipeline | requests by `source`, `category` |
+| `triage_injection_detected_total` | counter | pipeline | injection hits |
+| `triage_phishing_suspected_total` | counter | pipeline | phishing hits |
+| `triage_policy_blocked_total` | counter | pipeline | account-changing requests parked for a human |
+| `triage_slm_fallback_total` | counter | pipeline | SLM calls that fell back to the baseline |
+| `triage_pii_leak_blocked_total` | counter | pipeline | SLM field values with raw PII that were dropped |
+| `triage_request_latency_ms` | histogram | pipeline | end-to-end latency |
+
+One metric is **not** emitted by the pipeline because the pipeline does not own the
+queue: `triage_queue_depth` (gauge) would be set by the out-of-hours queue worker in a
+real deployment. It is intentionally left out of the in-process registry so the doc does
+not claim code that is not there.
 
 **Alerts worth having:** SLM fallback rate climbing (model unhealthy), injection-hit rate
 spiking (attack campaign), audit chain verification failing (tampering).
@@ -142,11 +148,15 @@ Costs are a function of measured SLM latency on CPU. The latency numbers come fr
 eval run; until a real-model run fills them in, this table is **pending real run** and
 contains no invented values.
 
-| system | p50 latency | p95 latency | relative cost note |
+This table is **generated** from `eval/results-v2.json` by `make docs`:
+
+<!-- BEGIN:cost-table -->
+| system | p50 latency ms | p95 latency ms | relative cost note |
 |---|---|---|---|
-| A — v1 regex | see `results-v2.json` | see `results-v2.json` | ~free (CPU, no model) |
+| A — v1 regex/keyword | 0.0700 | 0.0900 | ~free (CPU, no model) |
 | B — embeddings-only | pending real run | pending real run | one embedding encode per request |
 | C — embeddings + SLM | pending real run | pending real run | one encode + one SLM generate |
+<!-- END:cost-table -->
 
 Once the real run is in, the cost column is derived as (p95 latency × vCPU-hour price) /
 requests-per-hour — all from measured latency, no guesses.

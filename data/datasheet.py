@@ -141,16 +141,21 @@ def build() -> str:
 
     lines.append("## How it was generated\n")
     lines.append(
-        "- Templates per category with a tone knob (formal / casual / annoyed), a seeded "
-        "typo injector, and a German/English phrase mixer.\n"
+        "- Numbered templates per category with a tone knob (formal / casual / annoyed), "
+        "a seeded typo injector applied to the whole message (including PII labels, so "
+        "the masker is tested against noise), and a German/English phrase mixer.\n"
         "- Email items carry a realistic `Authentication-Results` header drawn from "
         "{pass, fail, missing}; form items have no headers.\n"
         "- Attack/PII families are generated explicitly: phishing (with near-miss "
         "legitimate-invoice negatives), prompt injection in four obfuscation modes "
         "(plain, spaced-out, homoglyph, base64) plus benign look-alikes, PII-heavy, and "
         "out-of-hours.\n"
-        "- Split is stratified by `(category, family)` so each class appears in every "
-        "split.\n"
+        "- Split is **by template family**: each template is assigned to exactly one "
+        "split, so a template string never appears in more than one split. The "
+        "`data/overlap_check.py` gate enforces that no test item is >= 0.9 similar to a "
+        "train or model-facing example.\n"
+        "- Each item records `pii_truth`, the raw PII values actually placed, so leak "
+        "checks compare against ground truth rather than the masker's own regex.\n"
     )
     lines.append("## Known limits\n")
     lines.append(

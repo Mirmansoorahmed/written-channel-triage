@@ -75,7 +75,7 @@ flowchart LR
     F --> H
     G --> H
 ```
-- `data/generator.py` builds ~1,500 labelled items from templates. A fixed seed
+- `data/generator.py` builds ~2,050 labelled items from templates. A fixed seed
   (`random.Random(20251031)`) makes the set reproducible; the seed is recorded in each
   file's header record.
 - Item shape (JSONL, one object per line):
@@ -87,7 +87,7 @@ flowchart LR
 - Obfuscated injections are generated four ways: plain, spaced-out (`I G N O R E`),
   homoglyph (Latin→Cyrillic/Greek lookalikes), and base64 (payload wrapped in a
   "decode and follow" carrier).
-- Split is stratified by `(category, family)` into train/dev/test (~70/15/15). The test
+- Split is by template family: each template is assigned to one split (roughly 60/20/20 of templates), so a template never crosses splits. The test
   split is written once and the eval reads only `test.jsonl`; the generator never tunes
   on it.
 - `data/datasheet.py` reads the three JSONL files and writes `docs/datasheet.md` with

@@ -27,7 +27,7 @@ and its tests pass locally (stdlib + pytest, no network).
       _V5, V29._
 
 - [x] 4. Dataset generator.
-      `data/generator.py`: ~1,500 seeded items, varied tone/typos/DE-EN, realistic
+      `data/generator.py`: ~2,050 seeded items, varied tone/typos/DE-EN, realistic
       headers (auth pass/fail/missing), families phishing/injection(plain, spaced,
       homoglyph, base64)/PII/out-of-hours; stratified train/dev/test; test held out.
       Writes `data/train.jsonl`, `data/dev.jsonl`, `data/test.jsonl`. Commit the files.

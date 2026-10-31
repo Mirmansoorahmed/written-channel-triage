@@ -55,9 +55,11 @@ the two generations trace separately.
 - **V8** The dataset shall include phishing, prompt-injection (including obfuscated:
   spaced-out, homoglyph, and base64-encoded), PII-heavy, and out-of-hours cases, each
   with ground-truth labels.
-- **V9** The dataset shall target about 1,500 items and shall be written to `data/` with
-  a stratified train/dev/test split; the test split shall be held out (the generator and
-  eval shall not train or tune on it).
+- **V9** The dataset shall contain roughly 2,000 items and shall be written to `data/`
+  with a train/dev/test split **by template family** (a template appears in exactly one
+  split); the test split shall be held out (the generator and eval shall not train or
+  tune on it), and a leakage gate shall fail the build if any test item is >= 0.9 similar
+  to a train or model-facing example.
 - **V10** The system shall generate `docs/datasheet.md` from the data, containing the
   distribution tables (per category, per family, per split, per auth result), so the
   datasheet never contains a hand-typed count.

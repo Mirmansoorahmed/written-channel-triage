@@ -1,6 +1,6 @@
 """Seeded synthetic dataset generator (V6-V9).
 
-Produces ~1,600 labelled written-support items for the fictional NordTel GmbH and
+Produces ~2,050 labelled written-support items for the fictional NordTel GmbH and
 writes a train/dev/test split to data/*.jsonl. The split is done BY TEMPLATE
 FAMILY: every message is produced from a numbered template, and a template is
 assigned to exactly one split. So a template string that appears in train never
@@ -393,7 +393,7 @@ def generate(rng: random.Random, split_map: dict[str, str]) -> list[Item]:
     tones = ["formal", "casual", "annoyed"]
 
     # --- Normal category items: iterate templates so split is inherited ---
-    # ~40 items per template keeps the set near ~1,600 with 36 normal templates.
+    # ~40 items per template keeps the set near ~2,050 across the templates.
     per_template_normal = 40
     for category in CATEGORY_NAMES:
         for t_idx in range(len(TEMPLATES[category])):

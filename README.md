@@ -10,7 +10,7 @@ with a fixed seed. No real brand, no real customer data, and **nothing here is a
 certification**.
 
 > **v2** adds a real local SLM and multilingual embedding retrieval behind the v1
-> protocol, a seeded ~1,670-item dataset with a held-out test split, a three-system
+> protocol, a seeded ~2,050-item dataset with a held-out test split, a three-system
 > evaluation, hardened security, and a FastAPI + Docker delivery surface. The v1 baseline
 > (offline, deterministic) still runs with the Python standard library alone.
 
@@ -47,29 +47,45 @@ injection, a phishing false positive) and adds a post-model PII re-check.
 
 ## Results
 
-Numbers come only from a run. The eval compares three systems on the **held-out test
-split** (`data/test.jsonl`): **A** v1 regex/keyword, **B** embeddings-only, **C**
-embeddings + SLM. The full file is [`eval/results-v2.json`](eval/results-v2.json).
+Numbers come only from a run. The eval compares three systems — **A** v1
+regex/keyword, **B** embeddings-only, **C** embeddings + SLM — on the **held-out test
+split** (split by template family) and separately on a **hand-varied unseen set**
+(`eval/unseen/`). The tables below are **generated** from
+[`eval/results-v2.json`](eval/results-v2.json) by `make docs`; nothing here is typed by
+hand.
 
-| system | category accuracy | macro-F1 | latency p50 / p95 |
+<!-- BEGIN:results-table -->
+| system | split | accuracy | macro-F1 | latency p50 / p95 ms |
+|---|---|---|---|---|
+| A — v1 regex/keyword | test (held out) | 0.8215 | 0.7975 | 0.0700 / 0.0900 |
+| A — v1 regex/keyword | unseen (hand-varied) | 0.5000 | 0.4524 | 0.0600 / 0.0800 |
+| B — embeddings-only | — | pending real run | pending real run | pending real run |
+| C — embeddings + SLM | — | pending real run | pending real run | pending real run |
+<!-- END:results-table -->
+
+Detectors (phishing / injection / PII masking checked against the generator's
+ground-truth PII values, not the masker's own regex):
+
+<!-- BEGIN:detector-table -->
+| detector | split | precision | recall |
 |---|---|---|---|
-| A — v1 regex/keyword | see `results-v2.json` (offline run) | see `results-v2.json` | see `results-v2.json` |
-| B — embeddings-only | **pending real run** | pending real run | pending real run |
-| C — embeddings + SLM | **pending real run** | pending real run | pending real run |
+| phishing | test | 1.0000 | 1.0000 |
+| injection | test | 1.0000 | 1.0000 |
+| PII masking (ground-truth, no leak) | test | — | 1.0000 |
+| phishing | unseen | 0.5000 | 0.6667 |
+| injection | unseen | 1.0000 | 0.2500 |
+| PII masking (ground-truth, no leak) | unseen | — | 1.0000 |
+<!-- END:detector-table -->
 
-Detectors over the test split (measured on the offline run):
-
-| detector | result |
-|---|---|
-| phishing | see `results-v2.json` |
-| prompt injection (incl. spaced / homoglyph / base64) | see `results-v2.json` |
-| PII masking (no raw leak) | see `results-v2.json` |
-
-System B and C need the real models, so their rows stay **pending real run** until a
+Systems B and C need the real models, so their rows stay **pending real run** until a
 machine with Ollama + the embeddings model produces them — this repo never invents a
-number. The confusion matrix (PNG + CSV) and [`docs/error-analysis.md`](docs/error-analysis.md)
-are generated from the same run; the dataset distributions are in
-[`docs/datasheet.md`](docs/datasheet.md).
+number. The split is by template family, so no test template appears in train; a
+leakage gate (`make overlap-check`) fails the build if any test item is ≥0.9 similar to
+a train/example item. The large **test vs unseen** gap is reported on purpose: it is the
+honest measure of how well each system generalises to phrasings it has never seen. The
+confusion matrix (PNG + CSV) and per-split
+[`docs/error-analysis.md`](docs/error-analysis.md) come from the same run; dataset
+distributions are in [`docs/datasheet.md`](docs/datasheet.md).
 
 ## Architecture
 

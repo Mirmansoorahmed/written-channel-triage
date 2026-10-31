@@ -7,8 +7,8 @@ This file is **generated** by `data/datasheet.py` from `data/*.jsonl`. Every num
 Synthetic German/English written customer-support messages (email + form text) for the **fictional** NordTel GmbH. All values are invented and in obviously fake ranges. There is no real brand, person, or data, and this is not a certification. The set is produced by a seeded generator so it is identical for anyone who runs it.
 
 - Generator seed: `20251031`
-- Total items: **1670**
-- Splits: train 1154, dev 244, test 272 (test is held out)
+- Total items: **2056**
+- Splits: train 893, dev 569, test 594 (test is held out)
 
 The test split is held out: the eval reads only `test.jsonl` and the generator never tunes on it.
 
@@ -16,71 +16,72 @@ The test split is held out: the eval reads only `test.jsonl` and the generator n
 
 | split | items | share |
 |---|---|---|
-| train | 1154 | 69.1% |
-| dev | 244 | 14.6% |
-| test | 272 | 16.3% |
-| total | 1670 | 100.0% |
+| train | 893 | 43.4% |
+| dev | 569 | 27.7% |
+| test | 594 | 28.9% |
+| total | 2056 | 100.0% |
 
 ## Category distribution (per split)
 
 | category | train | dev | test | total |
 |---|---|---|---|---|
-| Beschwerde | 89 | 18 | 22 | 129 |
-| Datenschutz | 85 | 18 | 20 | 123 |
-| Kündigung | 85 | 18 | 20 | 123 |
-| Rechnung | 276 | 59 | 65 | 400 |
-| Sonstiges | 187 | 40 | 41 | 268 |
-| Störung | 89 | 19 | 22 | 130 |
-| Tarifwechsel | 89 | 18 | 22 | 129 |
-| Technik-Setup | 84 | 18 | 20 | 122 |
-| Umzug | 85 | 18 | 20 | 123 |
-| Vertrag | 85 | 18 | 20 | 123 |
+| Beschwerde | 53 | 46 | 46 | 145 |
+| Datenschutz | 46 | 46 | 46 | 138 |
+| Kündigung | 46 | 46 | 46 | 138 |
+| Rechnung | 252 | 123 | 134 | 509 |
+| Sonstiges | 122 | 82 | 82 | 286 |
+| Störung | 99 | 46 | 46 | 191 |
+| Tarifwechsel | 46 | 46 | 53 | 145 |
+| Technik-Setup | 91 | 42 | 49 | 182 |
+| Umzug | 46 | 46 | 46 | 138 |
+| Vertrag | 92 | 46 | 46 | 184 |
 
 ## Family distribution (per split)
 
 | family | train | dev | test | total |
 |---|---|---|---|---|
-| injection_base64 | 28 | 6 | 6 | 40 |
-| injection_homoglyph | 28 | 6 | 6 | 40 |
-| injection_negative | 25 | 4 | 11 | 40 |
-| injection_plain | 28 | 6 | 6 | 40 |
-| injection_spaced | 28 | 6 | 6 | 40 |
-| normal | 700 | 150 | 150 | 1000 |
-| out_of_hours | 50 | 10 | 20 | 80 |
-| phishing | 125 | 27 | 28 | 180 |
-| phishing_negative | 62 | 13 | 15 | 90 |
-| pii_heavy | 80 | 16 | 24 | 120 |
+| injection_base64 | 20 | 10 | 10 | 40 |
+| injection_homoglyph | 20 | 10 | 10 | 40 |
+| injection_negative | 21 | 7 | 14 | 42 |
+| injection_plain | 20 | 10 | 10 | 40 |
+| injection_spaced | 20 | 10 | 10 | 40 |
+| normal | 600 | 400 | 400 | 1400 |
+| out_of_hours | 30 | 20 | 20 | 70 |
+| phishing | 78 | 52 | 52 | 182 |
+| phishing_negative | 36 | 18 | 36 | 90 |
+| pii_heavy | 48 | 32 | 32 | 112 |
 
 ## Email authentication results (whole corpus)
 
 | auth | items | share |
 |---|---|---|
-| fail | 301 | 18.0% |
-| missing | 1022 | 61.2% |
-| pass | 347 | 20.8% |
+| fail | 336 | 16.3% |
+| missing | 1283 | 62.4% |
+| pass | 437 | 21.3% |
 
 ## Label prevalence (whole corpus)
 
 | label | positives | share |
 |---|---|---|
-| is_phishing | 180 | 10.8% |
-| is_injection | 160 | 9.6% |
-| has_pii | 354 | 21.2% |
-| out_of_hours | 197 | 11.8% |
+| is_phishing | 182 | 8.9% |
+| is_injection | 160 | 7.8% |
+| has_pii | 417 | 20.3% |
+| out_of_hours | 240 | 11.7% |
 
 ## Source (eml vs form)
 
 | source | items | share |
 |---|---|---|
-| eml | 803 | 48.1% |
-| form | 867 | 51.9% |
+| eml | 998 | 48.5% |
+| form | 1058 | 51.5% |
 
 ## How it was generated
 
-- Templates per category with a tone knob (formal / casual / annoyed), a seeded typo injector, and a German/English phrase mixer.
+- Numbered templates per category with a tone knob (formal / casual / annoyed), a seeded typo injector applied to the whole message (including PII labels, so the masker is tested against noise), and a German/English phrase mixer.
 - Email items carry a realistic `Authentication-Results` header drawn from {pass, fail, missing}; form items have no headers.
 - Attack/PII families are generated explicitly: phishing (with near-miss legitimate-invoice negatives), prompt injection in four obfuscation modes (plain, spaced-out, homoglyph, base64) plus benign look-alikes, PII-heavy, and out-of-hours.
-- Split is stratified by `(category, family)` so each class appears in every split.
+- Split is **by template family**: each template is assigned to exactly one split, so a template string never appears in more than one split. The `data/overlap_check.py` gate enforces that no test item is >= 0.9 similar to a train or model-facing example.
+- Each item records `pii_truth`, the raw PII values actually placed, so leak checks compare against ground truth rather than the masker's own regex.
 
 ## Known limits
 

@@ -65,3 +65,18 @@ AML.T0061 LLM Prompt Self-Replication.
 - Model availability is a dependency; the fallback keeps the service *safe* (baseline
   behaviour) but *degrades quality* when Ollama is down — tracked via
   `triage_slm_fallback_total`.
+- The embedding-check evidence is tested with a **real** retriever on the generalisation
+  (unseen) set, not just a mocked one; on hand-varied novel phrasings the rule-based
+  detector alone catches only a fraction (see `eval/results-v2.json` → `detectors.unseen`),
+  which is why the embedding-similarity layer exists.
+
+---
+
+### Note on the cited tests
+
+Every test named above is a real, passing test. Most run with the standard-library
+`make test`. The four that exercise the FastAPI surface
+(`tests/test_api.py::*`) and the embedding index
+(`tests/test_retrieval.py::*`) run under the optional extras and are executed in CI, which
+installs `.[api,models,eval]`; without those extras they are skipped (never failing), so no
+cited test is red.

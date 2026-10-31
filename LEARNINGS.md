@@ -157,7 +157,7 @@ and free, and no number appears unless a run produced it.**
 
 ## Data and eval, done so the numbers mean something
 
-- **Seeded dataset.** `data/generator.py` builds ~1,670 items from templates with a tone
+- **Seeded dataset.** `data/generator.py` builds ~2,050 items from templates with a tone
   knob, a typo injector and a German/English mixer, realistic auth headers, and explicit
   attack/PII families — then writes a stratified train/dev/test split. One fixed seed means
   the customer and I run byte-for-byte identical data (I verified by hashing two runs). The
