@@ -358,31 +358,39 @@ def _partial_ratio(needle: str, haystack: str) -> float:
     """Edit-distance partial ratio of `needle` against the best window of
     `haystack` (Round 4 #5).
 
-    Unlike the old aligned-character count, this tolerates inserted, deleted and
-    swapped characters: it slides windows of several lengths around len(needle)
-    over `haystack`, takes the minimum Levenshtein distance, and returns
-    1 - dist/len(needle). So "Clara Musterrau" vs "Clara Musterfrau" (one dropped
-    letter) scores ~0.93 rather than collapsing after the misalignment.
+    Tolerates inserted, deleted and swapped characters: for each candidate start
+    position in `haystack` (anchored where a needle character actually occurs, so
+    we don't scan every offset), score a window of length len(needle)+2 with a real
+    Levenshtein distance and keep the best. Returns 1 - min_dist/len(needle).
+    Anchoring on matching characters keeps it fast on long masked texts while still
+    catching a dropped letter, e.g. "Clara Musterrau" vs "Clara Musterfrau" ~0.93.
     """
     n, h = len(needle), len(haystack)
     if n == 0:
         return 1.0
     if h == 0:
         return 0.0
-    # Allow the matched window to be a bit shorter/longer than the needle so a
-    # dropped or inserted character is absorbed by the window, not the distance.
-    best_dist = n
-    widths = {max(1, n - 2), max(1, n - 1), n, n + 1, n + 2}
-    for w in widths:
-        if w > h:
-            continue
-        for start in range(h - w + 1):
+    if needle in haystack:
+        return 1.0
+    anchor = needle[0]
+    best = n
+    # Candidate starts: positions where the needle's first char appears, plus a
+    # couple of offsets before each so a leading deletion is still covered.
+    starts = {max(0, i - 1) for i, ch in enumerate(haystack) if ch == anchor}
+    starts.add(0)
+    # Try a few window widths around len(needle) so a dropped/inserted character
+    # is absorbed by the window rather than counted as extra edits.
+    widths = (n - 1, n, n + 1, n + 2)
+    for start in starts:
+        for w in widths:
+            if w < 1:
+                continue
             d = _edit_distance_full(needle, haystack[start:start + w])
-            if d < best_dist:
-                best_dist = d
-                if best_dist == 0:
+            if d < best:
+                best = d
+                if best == 0:
                     return 1.0
-    return max(0.0, 1.0 - best_dist / n)
+    return max(0.0, 1.0 - best / n)
 
 
 _IBAN_FRAG = re.compile(r"[A-Za-z]{0,2}\d(?:[ \-]?\d)+")

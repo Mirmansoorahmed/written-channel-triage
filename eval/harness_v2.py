@@ -389,16 +389,76 @@ def _assert_no_leakage(threshold: float = 0.9) -> None:
 
 
 def _assert_fallback_ok(systems_block: dict) -> None:
-    c = systems_block.get("C_embeddings_slm", {})
-    if c.get("status", "measured") != "measured":
-        return
-    for split, rep in c.get("by_split", {}).items():
-        diag = rep.get("slm_diagnostics")
-        if diag and diag.get("fallback_rate", 0.0) > FALLBACK_LIMIT:
-            raise SystemExit(
-                f"ABORT: System C fallback rate {diag['fallback_rate']} on split "
-                f"'{split}' exceeds {FALLBACK_LIMIT}. The SLM run is not healthy."
-            )
+    for key in ("C_embeddings_slm", "E_lr_then_slm"):
+        blk = systems_block.get(key, {})
+        if blk.get("status", "measured") != "measured":
+            continue
+        for split, rep in blk.get("by_split", {}).items():
+            diag = rep.get("slm_diagnostics")
+            if diag and diag.get("fallback_rate", 0.0) > FALLBACK_LIMIT:
+                raise SystemExit(
+                    f"ABORT: System {key} fallback rate {diag['fallback_rate']} on "
+                    f"split '{split}' exceeds {FALLBACK_LIMIT}. The SLM run is not healthy."
+                )
+
+
+def _choose_thresholds_on_dev(cat_model, dev_rows: list[dict],
+                              target_auto_accuracy: float = 0.95) -> dict:
+    """Choose, on DEV only, the human-review threshold and E's routing threshold
+    from D's calibrated probabilities (Round 4 #4).
+
+    Method: for each candidate threshold t, items with prob >= t are auto-handled;
+    pick the SMALLEST t whose auto-handled accuracy >= target_auto_accuracy, and
+    report the expected review rate (fraction with prob < t). E routes on the same
+    threshold: it trusts D at/above t and escalates to the SLM below it. Scored on
+    pii.mask(text), the same text used at evaluation.
+    """
+    scored = []
+    for r in dev_rows:
+        if r["family"] not in CATEGORY_FAMILIES:
+            continue
+        label, prob = cat_model.predict(_masked(r["text"]))
+        scored.append((prob, label == r["category"]))
+    if not scored:
+        return {"status": "no dev category items"}
+    n = len(scored)
+    best = None
+    for i in range(0, 100):
+        t = i / 100
+        auto = [c for p, c in scored if p >= t]
+        if not auto:
+            continue
+        acc = sum(auto) / len(auto)
+        review_rate = 1 - len(auto) / n
+        if acc >= target_auto_accuracy:
+            best = {"threshold": round(t, 2), "auto_accuracy": round(acc, 4),
+                    "expected_review_rate": round(review_rate, 4)}
+            break
+    if best is None:
+        # Target not reachable; report the highest-accuracy operating point.
+        t_best, a_best = 0.0, -1.0
+        for i in range(0, 100):
+            t = i / 100
+            auto = [c for p, c in scored if p >= t]
+            if not auto:
+                continue
+            acc = sum(auto) / len(auto)
+            if acc > a_best:
+                a_best, t_best = acc, t
+        auto = [c for p, c in scored if p >= t_best]
+        best = {"threshold": round(t_best, 2), "auto_accuracy": round(a_best, 4),
+                "expected_review_rate": round(1 - len(auto) / n, 4),
+                "note": f"target auto-accuracy {target_auto_accuracy} not reachable on dev"}
+    return {
+        "method": (f"smallest dev threshold whose auto-handled (prob>=t) accuracy "
+                   f">= {target_auto_accuracy}; scored on masked text"),
+        "target_auto_accuracy": target_auto_accuracy,
+        "human_review_threshold": best["threshold"],
+        "expected_review_rate": best["expected_review_rate"],
+        "auto_accuracy_at_threshold": best["auto_accuracy"],
+        "e_routing_threshold": best["threshold"],
+        **({"note": best["note"]} if "note" in best else {}),
+    }
 
 
 # --- main ------------------------------------------------------------------
@@ -416,6 +476,7 @@ def run_eval(real: bool | None = None, out_dir: str | None = None,
 
     splits = _load_splits()
     systems = [SystemA()]
+    thresholds: dict = {"status": "pending real run"}
     pending: dict[str, str] = {
         "B_embeddings_only": "pending real run",
         "C_embeddings_slm": "pending real run",
@@ -434,7 +495,13 @@ def run_eval(real: bool | None = None, out_dir: str | None = None,
             msg = f"pending real run: {type(exc).__name__}: {exc}"
             pending["B_embeddings_only"] = pending["C_embeddings_slm"] = msg
         try:
-            learned_systems, _ = build_learned_systems(MODELS_DIR)
+            learned_systems, cat_model = build_learned_systems(MODELS_DIR)
+            # Choose the review + E routing thresholds on DEV from D's probabilities.
+            thresholds = _choose_thresholds_on_dev(cat_model, splits["dev"])
+            e_thr = thresholds.get("e_routing_threshold")
+            for s in learned_systems:
+                if s.key == "E_lr_then_slm" and e_thr is not None:
+                    s.threshold = e_thr  # replace the hard-coded default
             systems.extend(learned_systems)
             for s in learned_systems:
                 pending.pop(s.key, None)
@@ -492,6 +559,7 @@ def run_eval(real: bool | None = None, out_dir: str | None = None,
         "category_families": sorted(CATEGORY_FAMILIES),
         "systems": systems_block,
         "detectors": detectors,
+        "thresholds": thresholds,
         "pii_leak_check": pii_leak_summary,
         "fallback_limit": FALLBACK_LIMIT,
     }
@@ -517,6 +585,7 @@ def pending_results() -> dict:
                                    ("C_embeddings_slm", 0), ("D_embeddings_lr", 0),
                                    ("E_lr_then_slm", 0)]},
         "detectors": {s: {"status": "pending real run"} for s in SPLITS},
+        "thresholds": {"status": "pending real run"},
         "pii_leak_check": {"status": "pending real run"},
         "fallback_limit": FALLBACK_LIMIT,
     }

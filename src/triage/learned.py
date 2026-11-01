@@ -94,8 +94,19 @@ class LearnedCategoryModel:
         return {str(order[i]): float(p[i]) for i in range(len(order))}
 
 
-def fit_category_model(texts: list[str], labels: list[str], embedder) -> LearnedCategoryModel:
-    """Fit a calibrated multinomial LR on embeddings. Deterministic."""
+def fit_category_model(
+    texts: list[str], labels: list[str], embedder,
+    calib_texts: list[str] | None = None, calib_labels: list[str] | None = None,
+) -> LearnedCategoryModel:
+    """Fit a calibrated multinomial LR on embeddings. Deterministic.
+
+    Calibration (Round 4 #4): when `calib_texts`/`calib_labels` are given (the DEV
+    split), the base LR is fit on `texts` (train) and the sigmoid calibrator is fit
+    on the held-out dev set via `cv="prefit"`. This makes "calibrated on dev" true,
+    instead of the old `cv=3` which refit the calibrator on the training data. When
+    no calibration set is supplied (tiny stub datasets in tests), fall back to an
+    internal CV so the fit still works offline.
+    """
     import numpy as np  # noqa: F401 - ensures numpy present
     from sklearn.calibration import CalibratedClassifierCV
     from sklearn.linear_model import LogisticRegression
@@ -105,18 +116,35 @@ def fit_category_model(texts: list[str], labels: list[str], embedder) -> Learned
     # Note: no `multi_class=` argument. It was deprecated and then removed in
     # scikit-learn 1.x; LogisticRegression picks multinomial automatically for a
     # multiclass target. Passing it broke on scikit-learn >= 1.8.
-    base = LogisticRegression(
-        max_iter=1000, random_state=RANDOM_STATE, C=1.0
-    )
-    # Sigmoid calibration with a small CV; cv is capped by the smallest class count
-    # so tiny stub datasets in tests still fit.
-    from collections import Counter
+    base = LogisticRegression(max_iter=1000, random_state=RANDOM_STATE, C=1.0)
 
-    min_class = min(Counter(y).values())
-    cv = max(2, min(3, min_class))
-    clf = CalibratedClassifierCV(base, method="sigmoid", cv=cv)
-    clf.fit(X, y)
+    if calib_texts is not None and calib_labels is not None and len(calib_texts) >= len(set(y)):
+        base.fit(X, y)
+        Xc = embedder.encode(calib_texts)
+        clf = _prefit_calibrator(base, method="sigmoid")
+        clf.fit(Xc, calib_labels)
+    else:
+        from collections import Counter
+
+        min_class = min(Counter(y).values())
+        cv = max(2, min(3, min_class))
+        clf = CalibratedClassifierCV(base, method="sigmoid", cv=cv)
+        clf.fit(X, y)
     return LearnedCategoryModel(clf=clf, labels=sorted(set(y)), embedder=embedder)
+
+
+def _prefit_calibrator(base, method="sigmoid"):
+    """CalibratedClassifierCV(cv='prefit') across sklearn versions.
+
+    scikit-learn renamed the prefit estimator argument from `base_estimator` to
+    `estimator` in 1.2+. Try the new name, fall back to the old one.
+    """
+    from sklearn.calibration import CalibratedClassifierCV
+
+    try:
+        return CalibratedClassifierCV(estimator=base, method=method, cv="prefit")
+    except TypeError:  # pragma: no cover - older sklearn
+        return CalibratedClassifierCV(base_estimator=base, method=method, cv="prefit")
 
 
 # --- injection classifier --------------------------------------------------

@@ -59,8 +59,15 @@ def _versions() -> dict:
 
 
 def _choose_injection_threshold(model, dev_rows: list[dict], min_precision: float = 0.9) -> dict:
-    """Pick the threshold on dev maximising F1 subject to precision >= min_precision."""
-    scored = [(model.proba(r["text"]), bool(r["is_injection"])) for r in dev_rows]
+    """Pick the threshold on dev maximising F1 subject to precision >= min_precision.
+
+    Scores the model on pii.mask(text) -- the same text the pipeline feeds it at
+    serve time (Round 4 #7), so the chosen threshold matches evaluation.
+    """
+    from triage import pii
+
+    scored = [(model.proba(pii.mask(r["text"]).masked_text), bool(r["is_injection"]))
+              for r in dev_rows]
     best = {"threshold": 0.5, "f1": -1.0, "precision": 0.0, "recall": 0.0}
     for i in range(1, 100):
         thr = i / 100
@@ -92,21 +99,28 @@ def _choose_injection_threshold(model, dev_rows: list[dict], min_precision: floa
 
 
 def train(embedder=None) -> dict:
-    from triage import learned
+    from triage import learned, pii
 
     embedder = embedder or learned.E5Embedder()
     train_rows = _load("train")
     dev_rows = _load("dev")
 
-    # Category model: category-bearing families only.
+    def masked(r):
+        # Round 4 #7: train on pii.mask(text), the SAME text seen at evaluation.
+        return pii.mask(r["text"]).masked_text
+
+    # Category model: category-bearing families only; calibrate on DEV (prefit).
     cat_rows = [r for r in train_rows if r["family"] in CATEGORY_FAMILIES]
+    dev_cat_rows = [r for r in dev_rows if r["family"] in CATEGORY_FAMILIES]
     cat_model = learned.fit_category_model(
-        [r["text"] for r in cat_rows], [r["category"] for r in cat_rows], embedder
+        [masked(r) for r in cat_rows], [r["category"] for r in cat_rows], embedder,
+        calib_texts=[masked(r) for r in dev_cat_rows],
+        calib_labels=[r["category"] for r in dev_cat_rows],
     )
 
-    # Injection model: every train row, labelled is_injection.
+    # Injection model: every train row, labelled is_injection, on masked text.
     inj_model = learned.fit_injection_model(
-        [r["text"] for r in train_rows], [bool(r["is_injection"]) for r in train_rows], embedder
+        [masked(r) for r in train_rows], [bool(r["is_injection"]) for r in train_rows], embedder
     )
 
     os.makedirs(MODELS_DIR, exist_ok=True)
@@ -124,8 +138,13 @@ def train(embedder=None) -> dict:
         "n_train_category": len(cat_rows),
         "n_train_injection": len(train_rows),
         "injection_threshold": inj_threshold,
-        "note": "Synthetic data only; fictional NordTel GmbH. Fit on train only; "
-                "injection threshold chosen on dev only.",
+        "calibration": {
+            "method": "sigmoid",
+            "fit_on": "dev (CalibratedClassifierCV cv='prefit'; base LR fit on train)",
+        },
+        "trained_on": "pii.mask(text)  -- same text as evaluation (no train/serve skew)",
+        "note": "Synthetic data only; fictional NordTel GmbH. Base LR fit on train; "
+                "probability calibration fit on dev; injection threshold chosen on dev.",
     }
     with open(os.path.join(MODELS_DIR, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(manifest, f, ensure_ascii=False, indent=2)

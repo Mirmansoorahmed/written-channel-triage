@@ -92,10 +92,13 @@ class SystemD:
 
 class SystemE:
     """System D, escalating to the SLM only when D's calibrated confidence is below
-    a threshold (default 0.5). Reports the SLM call rate.
+    the routing threshold. Reports the SLM call rate.
 
-    This is the cost/quality trade the review asked for: trust the cheap trained
-    head when it is confident, pay for the SLM only on the uncertain tail.
+    The threshold passed here is a placeholder default; the harness overwrites
+    `self.threshold` with the value chosen on DEV from D's probabilities
+    (_choose_thresholds_on_dev), so routing is never a hard-coded 0.5 in a real run.
+    This is the cost/quality trade: trust the cheap trained head when it is
+    confident, pay for the SLM only on the uncertain tail.
     """
 
     key = "E_lr_then_slm"
