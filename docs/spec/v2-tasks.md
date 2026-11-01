@@ -127,3 +127,51 @@ flattered themselves. These tasks fix that; numbers stay "pending real run" unti
       tests use tmp_path; generated PNG/CSV git-ignored; `make docs` emits D/E, cost
       and calibration rows; error-analysis / datasheet / LEARNINGS updated; all tables
       say "pending real run" in the committed state.
+
+---
+
+## Round 4 — fixes from the second real run
+
+A real run showed E was the best system but surfaced concrete defects: the injection
+LR was never actually used, C's cost was ~16x too low (Ollama CPU not counted), tests
+broke on scikit-learn 1.9, no review threshold was chosen in code, 4 test items still
+leaked PII, and auth alone separated unseen phishing from benign. These tasks fix that;
+every metric/cost/threshold table (and ADR 0007) stays "pending real run" until a local
+`TRIAGE_EVAL_REAL=1 ... eval.harness_v2`.
+
+- [x] R4.1 Wire the injection model. `learned.load_injection_detector` reads
+      `injection_lr.joblib` + the dev threshold from the manifest (None when absent);
+      the API and the harness detector use rules OR LR>=threshold and report injection
+      P/R/FPR twice (rules-only and combined). A stub-model test shows the API and
+      harness flag an item only the model catches.
+
+- [x] R4.2 Cost and RAM. `eval/procstat.py` reads Ollama CPU (utime+stime) and RSS from
+      /proc; cost per 1k = harness CPU-s + Ollama CPU-s; harness RSS ("process peak") and
+      Ollama RSS reported separately. The VM price label states instance, region
+      (us-east-1), date and source as an assumption. A fake-/proc test shows Ollama CPU
+      in the cost.
+
+- [x] R4.3 scikit-learn. Dropped `multi_class="auto"`; pinned `scikit-learn>=1.3,<2` in
+      the eval and learned extras; tests pass on 1.7 and >= 1.8.
+
+- [x] R4.4 Thresholds on dev, in code. The harness chooses the human-review threshold
+      (method + expected review rate) and E's routing threshold from D's dev
+      probabilities, stores both in results-v2.json, and `make docs` fills ADR 0007 and
+      architecture S8. E has a 2% fallback gate. D is calibrated on dev via `cv='prefit'`
+      so "calibrated on dev" is true.
+
+- [x] R4.5 PII leak check. Runs on ALL `pii_truth` items (not only has_pii); the
+      partial ratio is a real edit-distance match (insert/delete/swap); the generator
+      records post-typo truth plus the pre-typo value; the masker handles a typo'd street
+      before an [[ADDRESS]] token and signature names in non-PII items. Review examples
+      added; 0 leaks reported.
+
+- [x] R4.6 Unseen phishing without the auth shortcut. Added auth=PASS phishing
+      (authenticated lookalike / combo-squat / brand-like domains) and auth=FAIL/missing
+      benign mail (forwards, mailing lists, a customer writing "Mahnung ... sofort
+      zahlen"), hand-written. A combo-squat signal fires when an own brand label appears
+      in a foreign registrable domain; unseen phishing P/R is reported split by auth.
+
+- [x] R4.7 Small items. README no longer implies links to git-ignored charts; D and the
+      injection LR train on `pii.mask(text)` (no train/serve skew); error-analysis states
+      C's unseen weakness, constant confidence and Sonstiges over-prediction.
