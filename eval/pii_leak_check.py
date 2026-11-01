@@ -19,6 +19,8 @@ import os
 
 HERE = os.path.dirname(__file__)
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
+TRAIN_PATH = os.path.join(ROOT, "data", "train.jsonl")
+DEV_PATH = os.path.join(ROOT, "data", "dev.jsonl")
 TEST_PATH = os.path.join(ROOT, "data", "test.jsonl")
 UNSEEN_PATH = os.path.join(HERE, "unseen", "unseen.jsonl")
 
@@ -40,7 +42,9 @@ def _load(path: str) -> list[dict]:
 def run_check() -> dict:
     from triage import pii
 
-    rows = [("test", r) for r in _load(TEST_PATH)]
+    rows = [("train", r) for r in _load(TRAIN_PATH)]
+    rows += [("dev", r) for r in _load(DEV_PATH)]
+    rows += [("test", r) for r in _load(TEST_PATH)]
     rows += [("unseen", r) for r in _load(UNSEEN_PATH)]
 
     checked = 0
@@ -48,8 +52,10 @@ def run_check() -> dict:
     total_leaks = 0
     examples: list[dict] = []
     for split, r in rows:
+        # Round 4 #5: check EVERY item that has ground-truth PII, not only those
+        # flagged has_pii (a non-PII item can still carry a signature name).
         truth = r.get("pii_truth") or []
-        if not r.get("has_pii") or not truth:
+        if not truth:
             continue
         checked += 1
         masked = pii.mask(r["text"]).masked_text

@@ -78,6 +78,15 @@ _ADDRESS = re.compile(
 # letter) so a city survives even if the street match stops early.
 _PLZ_ORT = re.compile(r"\b\d{4,5}\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+(?:[- ][A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+)?")
 
+# A capitalised word + house number sitting immediately before an existing
+# [[ADDRESS_n]] placeholder (Round 4 #5). When the postcode+city were masked but a
+# badly-typo'd street ("Beispielstarße 41,", "Beeispielstrßae 2,") was left, this
+# pass masks the street+number too. The street token is only required to be a
+# capitalised word of >=4 letters, so any typo of the suffix still matches.
+_ADDRESS_BEFORE_TOKEN = re.compile(
+    r"([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]{3,}\s*\d+[a-z]?)\s*,?\s*(?=\[\[ADDRESS_\d+\]\])"
+)
+
 
 def _levenshtein(a: str, b: str) -> int:
     """Edit distance (stdlib, small strings only)."""
@@ -113,7 +122,10 @@ _NAME_LABELLED = re.compile(
 _NAME = re.compile(
     r"(?:mit\s+freundlichen\s+gr\w+|viele\s+gr\w+|beste\s+gr\w+|gr\w*\u00df\w*|"
     r"gruess\w*|best\s+regards|regards|mfg|lg|danke(?:\s+und\s+gr\w+)?)\s*[,]?\s*\n+\s*"
-    r"((?:Dr\.?\s+|Prof\.?\s+)?[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+(?:[-\s]+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+){1,3})",
+    # Name tokens: first token may be a single letter (a typo dropped a letter,
+    # e.g. "i Weber"); require at least two whitespace-separated tokens so a lone
+    # word is not mistaken for a name.
+    r"((?:Dr\.?\s+|Prof\.?\s+)?[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]*(?:[-\s]+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+){1,3})",
     re.IGNORECASE,
 )
 
@@ -152,18 +164,26 @@ _SIG_NAME_LINE = re.compile(
 
 
 # A short trailing line that looks like a 2-3 word personal name even if a typo
-# lower-cased an initial ("Sophie eBrg"). Tokens are alphabetic, each 2-20 chars,
-# no digits/@/URL. Conservative: only used on the final line after a blank or a
-# short closing line, so ordinary sentences are not masked.
+# lower-cased or shortened a token ("Sophie eBrg", "a Klein", "Lukas chmidt").
+# The first token may be a single letter. Conservative: only used on the final
+# line after a sign-off-ish or short line, so ordinary sentences are not masked.
 _NAMEISH_LINE = re.compile(
-    r"^\s*((?:Dr\.?\s+|Prof\.?\s+)?[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{1,19}"
-    r"(?:\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{1,19}){1,2})\s*$"
+    r"^\s*((?:Dr\.?\s+|Prof\.?\s+)?[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{0,19}"
+    r"(?:\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{0,19}){1,2})\s*$"
 )
 # Words that commonly end a message but are NOT names, so we don't mask them.
 _NOT_A_NAME = {
     "danke", "grüße", "gruesse", "grüsse", "regards", "mfg", "lg", "hallo",
-    "tschüss", "ciao", "cheers", "thanks", "bye",
+    "tschüss", "ciao", "cheers", "thanks", "bye", "viele", "beste", "freundlichen",
 }
+# A loose sign-off detector for the PRECEDING line: a greeting root (grüß/gruess),
+# "danke"/"dank", "regards", "mfg"/"lg", possibly typo'd. Used to confirm the final
+# line is the signature of a block even when the sign-off line is long/garbled.
+_SIGNOFF_LINEISH = re.compile(
+    r"gr\w*\u00df|gruess|gr[uü]ess|dank|regards|mit\s+freundlich|viele\s+gr|"
+    r"beste\s+gr|\bmfg\b|\blg\b",
+    re.IGNORECASE,
+)
 
 
 def _mask_trailing_signature(
@@ -183,14 +203,17 @@ def _mask_trailing_signature(
     if m:
         name = m.group(1)
     else:
-        # Typo-tolerant fallback: a short name-ish final line whose tokens are not
-        # common sign-off words, preceded by a blank/short line (a signature block).
+        # Typo-tolerant fallback: a name-ish final line whose tokens are not common
+        # sign-off words, where the previous non-empty line is short OR looks like a
+        # (possibly typo'd) sign-off -- i.e. this is the name of a signature block.
         m2 = _NAMEISH_LINE.match(line)
         if m2:
             cand = m2.group(1)
             tokens = cand.lower().replace("-", " ").split()
             prev = lines[idx - 1].strip() if idx > 0 else ""
-            looks_like_block = (prev == "" or len(prev.split()) <= 3)
+            looks_like_block = (
+                prev == "" or len(prev.split()) <= 3 or bool(_SIGNOFF_LINEISH.search(prev))
+            )
             not_signoff = not any(t in _NOT_A_NAME for t in tokens)
             if looks_like_block and not_signoff and 2 <= len(tokens) <= 3:
                 name = cand
@@ -241,6 +264,8 @@ def mask(text: str) -> MaskResult:
     out = _mask_with(out, _CUSTOMER_BARE, "CUSTOMER", counter, token_map, group=1)
     out = _mask_with(out, _ADDRESS, "ADDRESS", counter, token_map)
     out = _mask_with(out, _PLZ_ORT, "ADDRESS", counter, token_map)
+    # Mask a street+number still sitting before an [[ADDRESS]] placeholder.
+    out = _mask_with(out, _ADDRESS_BEFORE_TOKEN, "ADDRESS", counter, token_map, group=1)
     out = _mask_with(out, _NAME_LABELLED, "NAME", counter, token_map, group=1)
     out = _mask_with(out, _NAME, "NAME", counter, token_map, group=1)
     out = _mask_trailing_signature(out, counter, token_map)
@@ -312,29 +337,52 @@ def ground_truth_leaks(masked_text: str, pii_truth: list[str]) -> list[str]:
     return leaked
 
 
-def _partial_ratio(needle: str, haystack: str) -> float:
-    """Best overlap of `needle` against any equal-length window of `haystack`.
+def _edit_distance_full(a: str, b: str) -> int:
+    """Levenshtein distance (insert/delete/substitute), no length cap."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[len(b)]
 
-    A lightweight stand-in for a fuzzy partial ratio (no rapidfuzz dependency):
-    slides `needle` over `haystack` and returns the highest fraction of matching
-    characters at aligned positions. Good enough to catch a near-duplicate that a
-    typo or a dropped character would otherwise hide.
+
+def _partial_ratio(needle: str, haystack: str) -> float:
+    """Edit-distance partial ratio of `needle` against the best window of
+    `haystack` (Round 4 #5).
+
+    Unlike the old aligned-character count, this tolerates inserted, deleted and
+    swapped characters: it slides windows of several lengths around len(needle)
+    over `haystack`, takes the minimum Levenshtein distance, and returns
+    1 - dist/len(needle). So "Clara Musterrau" vs "Clara Musterfrau" (one dropped
+    letter) scores ~0.93 rather than collapsing after the misalignment.
     """
     n, h = len(needle), len(haystack)
     if n == 0:
         return 1.0
-    if n > h:
-        needle, haystack, n, h = haystack, needle, h, n
-    if n == 0:
-        return 1.0
-    best = 0.0
-    for start in range(h - n + 1):
-        window = haystack[start:start + n]
-        same = sum(1 for a, b in zip(needle, window) if a == b)
-        best = max(best, same / n)
-        if best == 1.0:
-            break
-    return best
+    if h == 0:
+        return 0.0
+    # Allow the matched window to be a bit shorter/longer than the needle so a
+    # dropped or inserted character is absorbed by the window, not the distance.
+    best_dist = n
+    widths = {max(1, n - 2), max(1, n - 1), n, n + 1, n + 2}
+    for w in widths:
+        if w > h:
+            continue
+        for start in range(h - w + 1):
+            d = _edit_distance_full(needle, haystack[start:start + w])
+            if d < best_dist:
+                best_dist = d
+                if best_dist == 0:
+                    return 1.0
+    return max(0.0, 1.0 - best_dist / n)
 
 
 _IBAN_FRAG = re.compile(r"[A-Za-z]{0,2}\d(?:[ \-]?\d)+")

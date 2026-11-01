@@ -185,3 +185,36 @@ def test_signature_block_not_oversensitive():
     # A normal closing sentence must NOT be masked as a name.
     m = mask("Vielen Dank für Ihre Hilfe heute.").masked_text
     assert "Vielen Dank" in m or "[[NAME" not in m
+
+
+# --- Round 4 #5: street-before-token, typo'd signature names, edit-distance ratio ---
+
+from triage.pii import _partial_ratio
+
+
+def test_round4_street_before_address_token_masked():
+    for text in ("Beispielstarße 41, [[ADDRESS_1]]", "Beeispielstrßae 2, [[ADDRESS_1]]"):
+        m = mask(text).masked_text
+        # The typo'd street + number must be masked, not left before the token.
+        assert "straße" not in m.lower() and "strße" not in m.lower()
+        assert "[[ADDRESS" in m
+        assert not any(ch.isdigit() for ch in m.replace("[[ADDRESS_1]]", "").replace("[[ADDRESS_2]]", ""))
+
+
+def test_round4_short_or_typod_signature_names_masked():
+    for text, truth in (
+        ("Mit freundlichen Grüßen\ni Weber", "i Weber"),
+        ("Mit freundlichen Grüßen\nMax eBispiel", "Max eBispiel"),
+        ("Mit freundlichen, aber genervten rGüßen\nLukas chmidt", "Lukas chmidt"),
+        ("Dank\na Klein", "a Klein"),
+    ):
+        m = mask(text).masked_text
+        assert not fuzzy_ground_truth_leaks(m, [truth]), f"leaked {truth!r} -> {m!r}"
+
+
+def test_round4_edit_distance_partial_ratio():
+    # One dropped letter ("Musterrau" vs "Musterfrau") must score >= 0.85, which
+    # the old aligned-Hamming ratio could not after the misalignment.
+    assert _partial_ratio("clara musterfrau", "hallo clara musterrau, danke") >= 0.85
+    leaks = fuzzy_ground_truth_leaks("Hallo Clara Musterrau, danke", ["Clara Musterfrau"])
+    assert leaks and leaks[0]["score"] >= 0.85
