@@ -42,7 +42,7 @@ from collections import Counter
 from triage import injection as injection_mod
 from triage import learned, pii, pipeline
 from triage.models import Source
-from eval import metrics
+from eval import metrics, procstat
 from eval.systems import SystemA, build_learned_systems, build_real_systems
 
 HERE = os.path.dirname(__file__)
@@ -157,9 +157,15 @@ def _score_split(system, rows: list[dict]) -> dict:
     return out
 
 
+def _uses_slm(system) -> bool:
+    """True if the system calls the SLM (so Ollama CPU should be attributed)."""
+    return getattr(system, "key", "") in ("C_embeddings_slm", "E_lr_then_slm")
+
+
 def _score_system(system, splits: dict[str, list[dict]]) -> tuple[dict, dict]:
     """Score a system across all splits (each once). Returns (block, errors_by_split)."""
     cpu0 = time.process_time()
+    oll0 = procstat.sample_ollama() if _uses_slm(system) else None
     block: dict = {"label": system.label, "status": "measured", "by_split": {}}
     errors_by_split: dict[str, list[dict]] = {}
     total_items = 0
@@ -175,11 +181,25 @@ def _score_system(system, splits: dict[str, list[dict]]) -> tuple[dict, dict]:
         k: v for k, v in block["by_split"]["test"].items() if k != "slm_diagnostics"
     }
 
-    cpu_total = time.process_time() - cpu0
-    peak_rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    harness_cpu = time.process_time() - cpu0
+    harness_rss_mb = round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)
+
+    # Ollama CPU seconds consumed during this system's pass (SLM systems only).
+    ollama_cpu = 0.0
+    ollama_rss_mb = None
+    if _uses_slm(system):
+        oll1 = procstat.sample_ollama()
+        ollama_cpu = max(0.0, oll1.get("cpu_seconds", 0.0) - (oll0 or {}).get("cpu_seconds", 0.0))
+        ollama_rss_mb = oll1.get("peak_rss_mb")
+
+    total_cpu = harness_cpu + ollama_cpu
     block["cost"] = {
-        "cpu_seconds_per_item": round(cpu_total / total_items, 6) if total_items else None,
-        "peak_rss_mb": round(peak_rss_kb / 1024, 1),  # Linux ru_maxrss is in KB
+        # cost per 1k uses harness CPU-s + Ollama CPU-s (Round 4 #2).
+        "cpu_seconds_per_item": round(total_cpu / total_items, 6) if total_items else None,
+        "harness_cpu_seconds_per_item": round(harness_cpu / total_items, 6) if total_items else None,
+        "ollama_cpu_seconds_per_item": round(ollama_cpu / total_items, 6) if total_items else None,
+        "harness_peak_rss_mb": harness_rss_mb,   # labelled "process peak"
+        "ollama_peak_rss_mb": ollama_rss_mb,     # separate from the harness RSS
         "items_scored": total_items,
     }
     return block, errors_by_split

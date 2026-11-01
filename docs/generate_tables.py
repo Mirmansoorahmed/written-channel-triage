@@ -27,13 +27,22 @@ RESULTS_PATH = os.path.join(ROOT, "eval", "results-v2.json")
 README_PATH = os.path.join(ROOT, "README.md")
 ARCH_PATH = os.path.join(HERE, "architecture.md")
 
-# --- VM price assumption (clearly labelled; not a measured number) ----------
-# Example on-demand price for a general-purpose 4 vCPU / 16 GB Linux VM. Source
-# and date are shown in the rendered table so a reader can replace it.
+# --- VM price ASSUMPTION (clearly labelled; not a measured number) ----------
+# On-demand price for an AWS m6i.xlarge (4 vCPU / 16 GB), us-east-1. Region, date
+# and source are shown in the rendered table so a reader can replace it. This is a
+# planning assumption, not a quote.
 VM_VCPUS = 4
 VM_RAM_GB = 16
-VM_HOURLY_USD = 0.1920  # assumption: AWS m6i.xlarge on-demand, eu-central-1
-VM_PRICE_SOURCE = "example AWS m6i.xlarge on-demand, eu-central-1 (assumption, 2025)"
+VM_INSTANCE = "AWS m6i.xlarge"
+VM_REGION = "us-east-1"
+VM_PRICE_DATE = "2025-01"
+VM_HOURLY_USD = 0.1920
+VM_PRICE_SOURCE = "AWS EC2 on-demand pricing page"
+VM_PRICE_LABEL = (
+    f"ASSUMPTION: ${VM_HOURLY_USD}/h for {VM_INSTANCE} ({VM_VCPUS} vCPU / {VM_RAM_GB} GB), "
+    f"on-demand, region {VM_REGION}, as of {VM_PRICE_DATE} (source: {VM_PRICE_SOURCE}). "
+    f"Replace with your own rate."
+)
 
 SYSTEM_ORDER = [
     ("A_v1_regex", "A - v1 regex/keyword"),
@@ -110,27 +119,34 @@ def _detector_table(data: dict) -> str:
 
 
 def _cost_table(data: dict) -> str:
+    # CPU s/item is harness CPU + Ollama CPU; cost per 1k uses that sum. RSS is
+    # reported for the harness process ("process peak") and Ollama separately.
     rows = [
-        f"VM price assumption: **${VM_HOURLY_USD}/h** for {VM_VCPUS} vCPU / {VM_RAM_GB} GB "
-        f"({VM_PRICE_SOURCE}).",
+        VM_PRICE_LABEL,
         "",
-        "| system | CPU s / item | cost per 1k msg (USD) | peak RSS (MB) |",
-        "|---|---|---|---|",
+        "| system | harness CPU s/item | Ollama CPU s/item | cost per 1k msg (USD) "
+        "| harness RSS (MB) | Ollama RSS (MB) |",
+        "|---|---|---|---|---|---|",
     ]
     systems = data["systems"]
     for key, label in SYSTEM_ORDER:
         block = systems.get(key, {})
         if not _measured(block):
-            rows.append(f"| {label} | pending real run | pending real run | pending real run |")
+            rows.append(f"| {label} | pending real run | pending real run | pending real run "
+                        "| pending real run | pending real run |")
             continue
         cost = block.get("cost", {})
         cpu = cost.get("cpu_seconds_per_item")
-        rss = cost.get("peak_rss_mb")
+        hcpu = cost.get("harness_cpu_seconds_per_item")
+        ocpu = cost.get("ollama_cpu_seconds_per_item")
+        hrss = cost.get("harness_peak_rss_mb")
+        orss = cost.get("ollama_peak_rss_mb")
         if cpu is None:
-            rows.append(f"| {label} | - | - | {_fmt(rss)} |")
+            rows.append(f"| {label} | - | - | - | {_fmt(hrss)} | {_fmt(orss)} |")
             continue
         per_1k = cpu * 1000 * VM_HOURLY_USD / (3600 * VM_VCPUS)
-        rows.append(f"| {label} | {cpu:.6f} | {per_1k:.4f} | {_fmt(rss)} |")
+        rows.append(f"| {label} | {_fmt(hcpu)} | {_fmt(ocpu)} | {per_1k:.4f} "
+                    f"| {_fmt(hrss)} | {_fmt(orss)} |")
     return "\n".join(rows)
 
 
