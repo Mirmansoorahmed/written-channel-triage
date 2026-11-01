@@ -39,7 +39,8 @@ import resource
 import time
 from collections import Counter
 
-from triage import pii, pipeline
+from triage import injection as injection_mod
+from triage import learned, pii, pipeline
 from triage.models import Source
 from eval import metrics
 from eval.systems import SystemA, build_learned_systems, build_real_systems
@@ -187,8 +188,37 @@ def _score_system(system, splits: dict[str, list[dict]]) -> tuple[dict, dict]:
 # --- detectors per split (PII via fuzzy ground truth) ----------------------
 
 
-def _score_detectors(rows: list[dict], label: str) -> dict:
-    ph_true, ph_pred, inj_true, inj_pred = [], [], [], []
+def _phishing_by_auth(rows: list[dict]) -> dict:
+    """Phishing P/R split by auth pass vs fail/missing (Round 4, #6).
+
+    So we can see whether the detector separates phishing from benign WITHOUT the
+    auth shortcut: the auth-pass slice contains phishing that passed auth and
+    benign mail, the fail/missing slice the opposite.
+    """
+    out = {}
+    for name, keep in (("auth_pass", lambda r: r.get("auth") == "pass"),
+                       ("auth_fail_or_missing", lambda r: r.get("auth") != "pass")):
+        sub = [r for r in rows if keep(r)]
+        if not sub:
+            out[name] = {"n": 0}
+            continue
+        yt, yp = [], []
+        for r in sub:
+            src = Source.EML if r["source"] == "eml" else Source.FORM
+            yt.append(bool(r["is_phishing"]))
+            yp.append(pipeline.run(r["text"], source=src).phishing.suspected)
+        d = metrics.detection_prf(yt, yp)
+        d["n"] = len(sub)
+        out[name] = d
+    return out
+
+
+def _score_detectors(rows: list[dict], label: str,
+                     injection_model=None, injection_threshold: float | None = None) -> dict:
+    ph_true, ph_pred = [], []
+    inj_true = []
+    inj_rules_pred, inj_combined_pred = [], []
+    model_only_catches: list[dict] = []
     pii_cases = pii_leaks = 0
     leaked_examples: list[dict] = []
 
@@ -197,11 +227,21 @@ def _score_detectors(rows: list[dict], label: str) -> dict:
         result = pipeline.run(r["text"], source=req_source)
         ph_true.append(bool(r["is_phishing"]))
         ph_pred.append(result.phishing.suspected)
+
+        # Injection: score rules-only AND rules-OR-model on the same masked text.
+        masked = _masked(r["text"])
+        rules_v = injection_mod.detect_injection(masked)
+        combined_v = injection_mod.detect_injection(
+            masked, injection_model=injection_model, threshold=injection_threshold)
         inj_true.append(bool(r["is_injection"]))
-        inj_pred.append(result.injection.detected)
-        if r.get("has_pii") and r.get("pii_truth"):
+        inj_rules_pred.append(rules_v.detected)
+        inj_combined_pred.append(combined_v.detected)
+        if combined_v.detected and not rules_v.detected and len(model_only_catches) < 10:
+            model_only_catches.append({"id": r["id"], "rules": rules_v.matched_rules,
+                                        "combined": combined_v.matched_rules})
+
+        if r.get("pii_truth"):  # Round 4 #5: ALL items with ground-truth PII
             pii_cases += 1
-            masked = _masked(r["text"])
             leaks = pii.fuzzy_ground_truth_leaks(masked, r["pii_truth"])
             if leaks:
                 pii_leaks += 1
@@ -211,7 +251,11 @@ def _score_detectors(rows: list[dict], label: str) -> dict:
     return {
         "split": label,
         "phishing": metrics.detection_prf(ph_true, ph_pred),
-        "injection": metrics.detection_prf(inj_true, inj_pred),
+        "phishing_by_auth": _phishing_by_auth(rows),
+        "injection_rules_only": metrics.detection_prf(inj_true, inj_rules_pred),
+        "injection_combined": metrics.detection_prf(inj_true, inj_combined_pred),
+        "injection_model_wired": injection_model is not None,
+        "injection_model_only_catches": model_only_catches,
         "pii_masking_ground_truth": {
             "cases": pii_cases, "leaks": pii_leaks, "no_leak": pii_cases - pii_leaks,
             "recall": round((pii_cases - pii_leaks) / pii_cases, 4) if pii_cases else None,
@@ -426,7 +470,14 @@ def run_eval(real: bool | None = None, out_dir: str | None = None,
 
     _assert_fallback_ok(systems_block)
 
-    detectors = {split: _score_detectors(splits[split], split) for split in SPLITS}
+    # Load the trained injection detector (model + dev threshold) so the detector
+    # metrics report rules-only AND rules-OR-model (Round 4, #1). None when the
+    # artifacts are absent -> both columns equal the rules-only result.
+    inj_model, inj_threshold = learned.load_injection_detector(MODELS_DIR)
+    detectors = {
+        split: _score_detectors(splits[split], split, inj_model, inj_threshold)
+        for split in SPLITS
+    }
 
     # Standalone-style fuzzy PII leak summary over test+unseen (#7).
     from eval.pii_leak_check import run_check as pii_leak_run

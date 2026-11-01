@@ -102,8 +102,11 @@ def fit_category_model(texts: list[str], labels: list[str], embedder) -> Learned
 
     X = embedder.encode(texts)
     y = labels
+    # Note: no `multi_class=` argument. It was deprecated and then removed in
+    # scikit-learn 1.x; LogisticRegression picks multinomial automatically for a
+    # multiclass target. Passing it broke on scikit-learn >= 1.8.
     base = LogisticRegression(
-        max_iter=1000, random_state=RANDOM_STATE, C=1.0, multi_class="auto"
+        max_iter=1000, random_state=RANDOM_STATE, C=1.0
     )
     # Sigmoid calibration with a small CV; cv is capped by the smallest class count
     # so tiny stub datasets in tests still fit.
@@ -180,3 +183,31 @@ def load_injection_model(path: str, embedder) -> LearnedInjectionModel:
 
     payload = joblib.load(path)
     return LearnedInjectionModel(clf=payload["clf"], embedder=embedder)
+
+
+def load_injection_detector(models_dir: str | None = None, embedder=None):
+    """Load the injection model + dev threshold for the pipeline (Round 4, #1).
+
+    Reads `models/injection_lr.joblib` and the dev-chosen threshold from
+    `models/manifest.json`. Returns `(model, threshold)`, or `(None, None)` when
+    either artifact is missing or the libraries are not installed -- so the
+    pipeline / API degrade to rules-only injection detection instead of crashing.
+    The embedder defaults to the real E5 encoder; callers pass a stub in tests.
+    """
+    if models_dir is None:
+        models_dir = os.path.join(os.path.dirname(__file__), "..", "..", "models")
+    models_dir = os.path.normpath(models_dir)
+    model_path = os.path.join(models_dir, "injection_lr.joblib")
+    manifest_path = os.path.join(models_dir, "manifest.json")
+    if not (os.path.exists(model_path) and os.path.exists(manifest_path)):
+        return None, None
+    try:
+        import json
+
+        with open(manifest_path, encoding="utf-8") as f:
+            manifest = json.load(f)
+        threshold = float(manifest["injection_threshold"]["threshold"])
+        model = load_injection_model(model_path, embedder or E5Embedder())
+        return model, threshold
+    except Exception:  # noqa: BLE001 - any failure -> rules-only, never crash
+        return None, None

@@ -45,8 +45,13 @@ def _result_to_dict(result: TriageResult) -> dict:
     return d
 
 
-def create_app():
-    """Build the FastAPI app. Lazy import keeps the core dependency-free."""
+def create_app(injection_detector: "tuple | None" = None):
+    """Build the FastAPI app. Lazy import keeps the core dependency-free.
+
+    `injection_detector` is an optional `(model, threshold)` override so a test can
+    inject a stub without on-disk artifacts; by default the real artifacts are
+    loaded (and fall back to rules-only when absent).
+    """
     try:
         from fastapi import FastAPI
     except ImportError as exc:  # pragma: no cover - exercised only without the extra
@@ -62,6 +67,14 @@ def create_app():
 
     from . import observability as obs
     from . import pipeline
+
+    # Load the trained injection detector once (model + dev threshold). Returns
+    # (None, None) when the artifacts are absent, so /triage then uses rules only.
+    if injection_detector is not None:
+        inj_model, inj_threshold = injection_detector
+    else:
+        from . import learned
+        inj_model, inj_threshold = learned.load_injection_detector()
 
     app = FastAPI(
         title="written-channel-triage",
@@ -85,7 +98,10 @@ def create_app():
     @app.post("/triage")
     def triage(req: TriageRequest) -> dict:
         source = Source.EML if req.source == "eml" else Source.FORM
-        result = pipeline.run(req.text, source=source)
+        result = pipeline.run(
+            req.text, source=source,
+            injection_model=inj_model, injection_threshold=inj_threshold,
+        )
         return _result_to_dict(result)
 
     return app

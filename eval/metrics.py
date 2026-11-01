@@ -74,9 +74,11 @@ def detection_prf(y_true: list[bool], y_pred: list[bool]) -> dict:
     fn = sum(1 for t, p in zip(y_true, y_pred) if t and not p)
     tn = sum(1 for t, p in zip(y_true, y_pred) if not t and not p)
     pr, rc, f1 = _prf(tp, fp, fn)
+    fpr = fp / (fp + tn) if (fp + tn) else 0.0
     return {
         "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "precision": round(pr, 4), "recall": round(rc, 4), "f1": round(f1, 4),
+        "fpr": round(fpr, 4),
     }
 
 

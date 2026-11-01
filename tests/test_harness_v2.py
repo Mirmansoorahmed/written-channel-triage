@@ -61,9 +61,19 @@ def test_category_scored_only_on_category_families(results):
 def test_detectors_and_pii_leak_reported(results):
     det = results["detectors"]["test"]
     assert det["phishing"]["precision"] is not None
-    assert det["injection"]["recall"] is not None
+    # Injection is reported twice: rules-only and rules-OR-model (Round 4 #1).
+    assert det["injection_rules_only"]["recall"] is not None
+    assert det["injection_combined"]["recall"] is not None
+    assert "fpr" in det["injection_rules_only"]
     assert "pii_masking_ground_truth" in det
     assert results["pii_leak_check"]["checked_items"] > 0
+
+
+def test_phishing_reported_by_auth(results):
+    # Phishing P/R is broken out by auth so the auth shortcut is visible (Round 4 #6).
+    det = results["detectors"]["unseen"]
+    assert "phishing_by_auth" in det
+    assert set(det["phishing_by_auth"]) == {"auth_pass", "auth_fail_or_missing"}
 
 
 def test_calibration_present_for_system_a(results):
