@@ -135,3 +135,56 @@ def test_single_weak_signal_does_not_flag():
 
 def test_own_domains_config_present():
     assert "nordtel.de" in OWN_DOMAINS
+
+
+# --- Round 4 #6: combo-squat signal (brand label in a foreign domain) ---
+
+from triage.ingest import _is_combo_squat
+
+
+def test_combo_squat_unit():
+    assert _is_combo_squat("nordtel-billing.co")
+    assert _is_combo_squat("nordtel-kundenservice.com")
+    assert _is_combo_squat("n-o-r-d-t-e-l.de")      # hyphen-separated brand, foreign reg
+    assert _is_combo_squat("nordtelstore.io")
+    assert not _is_combo_squat("nordtel.de")        # own domain
+    assert not _is_combo_squat("portal.nordtel.de")
+    assert not _is_combo_squat("example.de")
+
+
+def test_combo_squat_phishing_flagged_even_under_auth_pass():
+    # An authenticated lookalike (compromised/authenticated brand-like domain) with
+    # passing auth must still be flagged by the combo-squat signal (no auth shortcut).
+    eml = (
+        "From: billing@nordtel-billing.co\n"
+        "Subject: Ihre Rechnung\n"
+        "Authentication-Results: mx.nordtel-billing.co; spf=pass; dkim=pass; dmarc=pass\n\n"
+        "Guten Tag, Ihre Rechnung finden Sie hier: http://nordtel-billing.co/pay\n"
+    )
+    v = detect_phishing(parse_eml(eml))
+    assert v.suspected
+    assert "combo_squat_domain" in v.matched_rules
+
+
+def test_hyphen_separated_brand_flagged():
+    eml = (
+        "From: service@n-o-r-d-t-e-l.de\n"
+        "Subject: Konto\n"
+        "Authentication-Results: mx.n-o-r-d-t-e-l.de; spf=pass; dkim=pass; dmarc=pass\n\n"
+        "Bitte bestätigen Sie Ihr Konto: http://n-o-r-d-t-e-l.de/verify\n"
+    )
+    v = detect_phishing(parse_eml(eml))
+    assert v.suspected
+    assert "combo_squat_domain" in v.matched_rules
+
+
+def test_real_own_domain_not_combo_squat():
+    eml = (
+        "From: service@nordtel.de\n"
+        "Subject: Rechnung\n"
+        "Authentication-Results: mx.nordtel.de; spf=pass; dkim=pass; dmarc=pass\n\n"
+        "Ihre Rechnung im Portal: https://portal.nordtel.de/rechnungen\n"
+    )
+    v = detect_phishing(parse_eml(eml))
+    assert not v.suspected
+    assert "combo_squat_domain" not in v.matched_rules

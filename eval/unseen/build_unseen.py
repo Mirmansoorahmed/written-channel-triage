@@ -243,67 +243,177 @@ def _injection_items() -> list[dict]:
     return items
 
 
-# --- phishing family (>=30): lookalikes of nordtel.de, fake senders, auth fail ---
-_PHISH_LOOKALIKES = [
-    "nordtel-sicherheit.de", "nordte1-konto.de", "nordtel-kundenportal.de",
-    "n0rdtel-service.de", "nordtel.secure-login.de", "nordtel-rechnung-online.de",
-]
-_PHISH_BODIES = [
-    ("Letzte Warnung", "Ihr Zugang wird in 2 Stunden gesperrt. Bestätigen Sie Ihre Zahlungsdaten sofort: http://{d}/verify"),
-    ("Konto eingeschränkt", "Wir haben ungewöhnliche Aktivität bemerkt. Verifizieren Sie umgehend Ihr Konto: http://{d}/login"),
-    ("Rückerstattung bereit", "Ihnen steht eine Erstattung zu. Geben Sie Ihre Bankdaten zur Auszahlung ein: http://{d}/refund"),
-    ("Password expires today", "Your portal password expires in a few hours. Reset immediately or lose access: http://{d}/reset"),
-    ("Zahlung fehlgeschlagen", "Ihre letzte Zahlung konnte nicht verarbeitet werden, bitte dringend erneut: http://{d}/pay-now"),
-    ("Gewinnbenachrichtigung", "Herzlichen Glückwunsch! Zur Auszahlung bestätigen Sie bitte sofort Ihre Kontodaten: http://{d}/claim"),
+# --- phishing family (>=30), hand-written: each a distinct (sender, subject, auth,
+# body). Crucially NOT separable by auth alone: it mixes auth=fail/missing phishing
+# with auth=PASS phishing from authenticated lookalike / combo-squat / brand-like
+# domains (a compromised or attacker-controlled domain can pass SPF for ITS OWN
+# domain). The detector must rely on the domain being a lookalike/combo-squat, not
+# on auth. Every body is written individually; no body x domain grid.
+_PHISHING: list[tuple[str, str, str, str]] = [
+    # auth = FAIL / SOFT (classic)
+    ("service@nordtel-sicherheit.de", "Letzte Warnung", FAIL,
+     "Ihr Zugang wird in zwei Stunden gesperrt. Bestätigen Sie jetzt Ihre Zahlungsdaten: http://nordtel-sicherheit.de/verify"),
+    ("konto@nordte1-konto.de", "Konto eingeschränkt", SOFT,
+     "Ungewöhnliche Anmeldung bemerkt. Verifizieren Sie umgehend Ihr Konto, sonst sperren wir es: http://nordte1-konto.de/login"),
+    ("mahnung@nordtel-rechnung-online.de", "Überfällige Rechnung", FAIL,
+     "Ihre Rechnung ist seit 14 Tagen offen. Zahlen Sie sofort, um eine Sperrung zu vermeiden: http://nordtel-rechnung-online.de/pay"),
+    ("security@n0rdtel-service.de", "Password reset required", FAIL,
+     "Our records show your portal password is compromised. Reset it immediately: http://n0rdtel-service.de/reset"),
+    ("team@nordtel.secure-login.de", "Verifizierung nötig", SOFT,
+     "Zur weiteren Nutzung müssen Sie Ihr Konto verifizieren. Klicken Sie binnen 24 Stunden: http://nordtel.secure-login.de/verify"),
+    ("noreply@nordtel-support.help", "Aktion erforderlich", FAIL,
+     "Ihr Vertrag läuft aus einem technischen Grund aus. Bestätigen Sie Ihre Bankdaten dringend: http://nordtel-support.help/konto"),
+    ("billing@nordtelrechnung.io", "Zahlung fehlgeschlagen", FAIL,
+     "Ihre letzte Abbuchung schlug fehl. Hinterlegen Sie umgehend eine neue Karte: http://nordtelrechnung.io/pay-now"),
+    ("win@nordtel-aktion.net", "Sie haben gewonnen", FAIL,
+     "Glückwunsch! Zur Auszahlung Ihres Bonus bestätigen Sie sofort Ihre Kontodaten: http://nordtel-aktion.net/claim"),
+    # auth = PASS phishing: authenticated lookalike / combo-squat / brand-like
+    # domains. SPF/DKIM/DMARC pass for the attacker's OWN domain, so auth is no help.
+    ("rechnung@nordtel-billing.co", "Ihre Rechnung Oktober", PASS,
+     "Guten Tag, Ihre Oktober-Rechnung steht bereit. Bitte prüfen und begleichen Sie den Betrag hier: http://nordtel-billing.co/rechnung"),
+    ("kundenservice@nordtel-kundenservice.com", "Konto bestätigen", PASS,
+     "Aus Sicherheitsgründen müssen wir Ihr Konto erneut bestätigen. Melden Sie sich bitte an: http://nordtel-kundenservice.com/login"),
+    ("service@n-o-r-d-t-e-l.de", "Wichtige Kontoinformation", PASS,
+     "Sehr geehrter Kunde, bitte aktualisieren Sie Ihre Zahlungsdaten über unser Portal: http://n-o-r-d-t-e-l.de/update"),
+    ("info@nordtel-portal.net", "Neues Dokument", PASS,
+     "Ein neues Dokument liegt für Sie bereit. Melden Sie sich zum Abruf an: http://nordtel-portal.net/dokumente"),
+    ("abrechnung@nordtelgmbh-service.com", "Zahlungsbestätigung", PASS,
+     "Bitte bestätigen Sie Ihre letzte Zahlung, damit wir sie zuordnen können: http://nordtelgmbh-service.com/confirm"),
+    ("support@nordtel-hilfe.io", "Ihr Anschluss", PASS,
+     "Wir konnten Sie telefonisch nicht erreichen. Verifizieren Sie Ihren Anschluss hier: http://nordtel-hilfe.io/verify"),
+    ("noreply@secure-nordtel.app", "Konto-Update", PASS,
+     "Zur Umstellung auf das neue Portal bestätigen Sie bitte Ihre Daten: http://secure-nordtel.app/migrate"),
+    ("billing@nordtelbilling.de", "Rechnung verfügbar", PASS,
+     "Ihre aktuelle Rechnung ist verfügbar. Zur Ansicht und Zahlung bitte anmelden: http://nordtelbilling.de/rechnung"),
+    # Display-URL trick under PASS auth: visible portal.nordtel.de, href elsewhere.
+    ("mailer@mail-relay.example", "Ihre Rechnung", PASS,
+     "Ihre Rechnung finden Sie unter [portal.nordtel.de](http://billing-collect.example/login) - bitte anmelden."),
+    # Phishing with MISSING auth (a forward), still domain-based.
+    ("", "Weitergeleitet: Konto gesperrt", "",
+     "Weitergeleitet: 'Mein NordTel-Konto wurde gesperrt, entsperren über http://nordtel-entsperren.co/pay'. Stimmt das?"),
+    # More auth=PASS phishing (authenticated lookalike / combo-squat).
+    ("service@nordtel-kundenportal.de", "Neue AGB akzeptieren", PASS,
+     "Zum Weiterbetrieb bestätigen Sie bitte die neuen AGB mit Ihren Zugangsdaten: http://nordtel-kundenportal.de/agb"),
+    ("abrechnung@nordtel-zahlung.io", "Offene Forderung", PASS,
+     "Es besteht eine offene Forderung. Zur sofortigen Begleichung bitte hier anmelden: http://nordtel-zahlung.io/pay"),
+    ("info@nordtelgmbh.app", "Ihr Vertrag endet", PASS,
+     "Ihr Vertrag endet automatisch. Zur Verlängerung Zahlungsdaten bestätigen: http://nordtelgmbh.app/renew"),
+    ("security@my-nordtel.net", "Verdächtige Aktivität", PASS,
+     "Wir haben verdächtige Aktivität festgestellt. Zur Freigabe verifizieren Sie Ihr Konto: http://my-nordtel.net/verify"),
+    ("post@nordtel-online.co", "Dokument wartet", PASS,
+     "Ein wichtiges Dokument wartet auf Ihre Freigabe im Portal: http://nordtel-online.co/doc"),
+    ("kundenkonto@nordtel-id.com", "Identität prüfen", PASS,
+     "Zur Einhaltung neuer Vorgaben müssen wir Ihre Identität prüfen: http://nordtel-id.com/kyc"),
+    # More auth=FAIL/SOFT phishing with varied wording.
+    ("alert@nordtel-warnung.net", "Datenabgleich erforderlich", FAIL,
+     "Behördlicher Datenabgleich: bestätigen Sie Name und Bankverbindung binnen 24 Stunden: http://nordtel-warnung.net/kyc"),
+    ("service@nordte1.de", "Rechnungskorrektur", SOFT,
+     "Wir haben zu viel abgebucht und erstatten den Betrag. Geben Sie Ihre IBAN zur Rückzahlung ein: http://nordte1.de/refund"),
+    ("no-reply@nordtel-vertrag.co", "Vertragsverlängerung", FAIL,
+     "Ihr Tarif wird teurer, sofern Sie nicht widersprechen. Widerspruch nur über: http://nordtel-vertrag.co/keep"),
+    ("billing@nordtel-pay.io", "Letzte Erinnerung", FAIL,
+     "Letzte Erinnerung vor Inkasso. Zahlen Sie jetzt, um Kosten zu vermeiden: http://nordtel-pay.io/final"),
+    ("team@nordtel-premium.net", "Upgrade kostenlos", SOFT,
+     "Kostenloses Upgrade verfügbar. Zur Aktivierung bitte Zahlungsdaten bestätigen: http://nordtel-premium.net/upgrade"),
+    ("mailer@relay-host.example", "Ihr Konto", PASS,
+     "Zur Sicherheit melden Sie sich an unter [portal.nordtel.de](http://account-check.example/login)."),
+    ("support@nordtelhelp.co", "Ticket #44821", FAIL,
+     "Ihr Support-Ticket erfordert eine Zahlung zur Bearbeitung. Jetzt begleichen: http://nordtelhelp.co/ticket"),
+    ("konto@nordtel-sicher.app", "Zwei-Faktor einrichten", PASS,
+     "Richten Sie jetzt die Zwei-Faktor-Anmeldung ein, sonst wird Ihr Zugang gesperrt: http://nordtel-sicher.app/2fa"),
 ]
 
 
 def _phishing_items() -> list[dict]:
     items = []
-    n = 0
-    for subj, body in _PHISH_BODIES:
-        for d in _PHISH_LOOKALIKES:
-            n += 1
-            if n > 36:
-                break
-            auth = FAIL if n % 3 else SOFT
-            sender = f"service@{d}"
-            items.append(_mk(f"phish-{n:02d}", _eml(sender, subj, auth, body.format(d=d)),
-                             "Rechnung", "eml", auth, False, [], is_phishing=True,
-                             family="unseen_phishing"))
+    for i, (sender, subj, auth, body) in enumerate(_PHISHING, 1):
+        text = _eml(sender or "unknown@example.org", subj, auth, body)
+        items.append(_mk(f"phish-{i:02d}", text, "Rechnung", "eml", auth, False, [],
+                         is_phishing=True, family="unseen_phishing"))
     return items
 
 
 # --- benign-with-links (>=30): own portal, auth pass, invoices, reminders --------
-_BENIGN_SUBJECTS = [
-    ("Ihre Rechnung ist verfügbar", "Ihre aktuelle Rechnung steht im Kundenportal bereit: https://{p}/rechnungen"),
-    ("Terminbestätigung", "Ihr Technikertermin ist bestätigt. Details und Umbuchung: https://{p}/termine"),
-    ("Tarifwechsel vorgemerkt", "Wir haben Ihren Wunsch erhalten. Status jederzeit unter: https://{p}/tarif"),
-    ("Zahlungserinnerung", "Freundliche Erinnerung: der offene Betrag wird in drei Tagen abgebucht. Details: https://{p}/zahlungen"),
-    ("Datenschutzanfrage eingegangen", "Ihre Anfrage ist eingegangen; den Stand sehen Sie unter: https://{p}/datenschutz"),
-    ("Jahresübersicht bereit", "Ihre Jahresübersicht steht zum Download bereit: https://{p}/dokumente"),
-    ("Störung behoben", "Die Störung in Ihrer Region ist behoben. Bei Problemen melden Sie sich: https://{p}/stoerung"),
-    ("Your appointment", "Your visit is confirmed. Manage or reschedule it in the portal: https://{p}/appointments"),
+# Hand-written, mixing auth=PASS own-portal mail with auth=FAIL/missing LEGITIMATE
+# mail (customer forwards, a mailing list, a customer who writes "Mahnung ... sofort
+# zahlen" about THEIR own invoice). So auth alone cannot separate it from phishing.
+_BENIGN_LINKS: list[tuple[str, str, str, str, str]] = [
+    ("service@nordtel.de", "Ihre Rechnung ist verfügbar", PASS,
+     "Ihre aktuelle Rechnung steht im Kundenportal bereit: https://portal.nordtel.de/rechnungen", "Rechnung"),
+    ("abrechnung@nordtel.de", "Jahresübersicht bereit", PASS,
+     "Ihre Jahresübersicht können Sie jetzt herunterladen: https://portal.nordtel.de/dokumente", "Rechnung"),
+    ("kundenservice@nordtel.de", "Terminbestätigung", PASS,
+     "Ihr Technikertermin ist bestätigt. Details und Umbuchung: https://portal.nordtel.de/termine", "Technik-Setup"),
+    ("no-reply@nordtel.de", "Tarifwechsel vorgemerkt", PASS,
+     "Wir haben Ihren Tarifwunsch erhalten; den Status sehen Sie unter https://portal.nordtel.de/tarif", "Tarifwechsel"),
+    ("datenschutz@nordtel.de", "Ihre Datenschutzanfrage", PASS,
+     "Ihre Anfrage ist eingegangen; den Bearbeitungsstand finden Sie unter https://portal.nordtel.de/datenschutz", "Datenschutz"),
+    ("service@nordtel.de", "Störung behoben", PASS,
+     "Die Störung in Ihrer Region ist behoben. Bei weiteren Problemen melden Sie sich: https://portal.nordtel.de/stoerung", "Störung"),
+    ("no-reply@nordtel.de", "Your appointment", PASS,
+     "Your technician visit is confirmed. Manage or reschedule it here: https://portal.nordtel.de/appointments", "Technik-Setup"),
+    ("abrechnung@nordtel.de", "Zahlungserinnerung", PASS,
+     "Freundliche Erinnerung: der offene Betrag wird in drei Tagen abgebucht. Details: https://portal.nordtel.de/zahlungen", "Rechnung"),
+    ("kundenservice@nordtel.de", "Vertrag verlängert", PASS,
+     "Ihre Verlängerung ist aktiv. Die neuen Konditionen sehen Sie unter https://portal.nordtel.de/vertrag", "Vertrag"),
+    ("service@nordtel.de", "Willkommen im Portal", PASS,
+     "Schön, dass Sie da sind. Ihre Vertragsunterlagen liegen unter https://portal.nordtel.de/dokumente bereit.", "Sonstiges"),
+    # auth = FAIL / missing but LEGITIMATE
+    ("kunde@gmx.example", "Fwd: meine Rechnung", FAIL,
+     "Hallo, ich leite meine Rechnung aus dem Portal weiter, der Link geht nur bei mir: https://portal.nordtel.de/rechnungen . Könnt ihr den Betrag erklären?", "Rechnung"),
+    ("maillist@verein.example", "Sammelbestellung Anschlüsse", "",
+     "Liebe Mitglieder, wer einen NordTel-Anschluss über den Verein möchte, trägt sich hier ein: https://portal.nordtel.de/termine . Viele Grüße, der Vorstand.", "Sonstiges"),
+    ("kunde2@web.example", "Mahnung - bitte sofort zahlen?", FAIL,
+     "Ich habe eine Mahnung bekommen und will die offene Rechnung sofort zahlen, bevor etwas gesperrt wird. Wo finde ich den Betrag im Portal?", "Rechnung"),
+    ("kunde3@outlook.example", "dringend Rechnung begleichen", "",
+     "Mir wurde gesagt ich soll dringend meine Rechnung zahlen, sonst wird gesperrt. Ich will das umgehend erledigen - welche Kontonummer gilt?", "Rechnung"),
+    ("newsletter@nachbarschaft.example", "Weiterleitung NordTel-Störungsinfo", "",
+     "FYI aus der Nachbarschaftsgruppe: laut NordTel ist die Störung behoben, Details angeblich hier: https://portal.nordtel.de/stoerung", "Störung"),
+    ("kunde4@gmx.example", "Fwd: Terminbestätigung", SOFT,
+     "Leite nur die Terminbestätigung weiter, die ich bekommen habe: https://portal.nordtel.de/termine - passt der Termin für euch?", "Technik-Setup"),
+    # More auth=PASS own-portal mail with varied bodies.
+    ("service@nordtel.de", "Neue Nachricht im Postfach", PASS,
+     "Sie haben eine neue Nachricht in Ihrem Kundenkonto: https://portal.nordtel.de/postfach", "Sonstiges"),
+    ("abrechnung@nordtel.de", "SEPA-Mandat bestätigt", PASS,
+     "Ihr SEPA-Mandat ist hinterlegt. Die Details finden Sie unter https://portal.nordtel.de/zahlungen", "Rechnung"),
+    ("kundenservice@nordtel.de", "Umzug eingetragen", PASS,
+     "Ihr Umzug ist vermerkt; den geplanten Schalttermin sehen Sie unter https://portal.nordtel.de/umzug", "Umzug"),
+    ("no-reply@nordtel.de", "Kündigung bestätigt", PASS,
+     "Ihre Kündigung ist bestätigt; das Abschaltdatum steht unter https://portal.nordtel.de/vertrag", "Kündigung"),
+    ("datenschutz@nordtel.de", "Datenexport bereit", PASS,
+     "Ihr angeforderter Datenexport steht bereit: https://portal.nordtel.de/datenschutz", "Datenschutz"),
+    ("service@nordtel.de", "Wartungsfenster", PASS,
+     "Hinweis zu geplanten Wartungsarbeiten in Ihrer Region: https://portal.nordtel.de/stoerung", "Störung"),
+    # More auth=FAIL/missing legitimate mail.
+    ("kunde5@gmx.example", "Rückfrage zu meiner Rechnung", SOFT,
+     "Ich habe meine Rechnung aus dem Portal (https://portal.nordtel.de/rechnungen) geöffnet, verstehe aber eine Position nicht.", "Rechnung"),
+    ("buchhaltung@firma.example", "Weiterleitung: NordTel-Rechnung", FAIL,
+     "Für die Buchhaltung: anbei die Rechnung des Mitarbeiters aus dem NordTel-Portal https://portal.nordtel.de/dokumente", "Rechnung"),
+    ("kunde6@web.example", "Fwd: Störungsmeldung", "",
+     "Leite meine eigene Störungsmeldung weiter, Statuslink war https://portal.nordtel.de/stoerung - gibt es Neuigkeiten?", "Störung"),
+    ("kunde7@gmx.example", "muss dringend kündigen", FAIL,
+     "Ich muss dringend und sofort kündigen wegen Umzug ins Ausland; wo bestätige ich das im Portal?", "Kündigung"),
+    ("hausverwaltung@immobilie.example", "Sammelanfrage Anschlüsse", "",
+     "Für unsere Mieter: Anschlussanfragen laufen über das NordTel-Portal https://portal.nordtel.de/termine", "Sonstiges"),
+    ("kunde8@outlook.example", "offene Zahlung erledigen", SOFT,
+     "Ich möchte meine offene Zahlung heute noch erledigen, bevor Mahngebühren anfallen - welcher Betrag ist offen?", "Rechnung"),
+    ("service@nordtel.de", "Ihr Gerät ist unterwegs", PASS,
+     "Ihr neuer Router ist versandt; die Sendung verfolgen Sie unter https://portal.nordtel.de/versand", "Technik-Setup"),
+    ("kundenservice@nordtel.de", "Umfrage zu Ihrem Service", PASS,
+     "Wie zufrieden waren Sie? Eine kurze Umfrage finden Sie unter https://portal.nordtel.de/umfrage", "Sonstiges"),
+    ("kunde9@web.example", "Fwd: Zahlungsbestätigung", "",
+     "Ich leite die Zahlungsbestätigung aus dem Portal weiter: https://portal.nordtel.de/zahlungen . Passt der Betrag?", "Rechnung"),
+    ("kunde10@gmx.example", "Rechnung zahlen - eilig", FAIL,
+     "Es eilt: ich will meine Rechnung sofort zahlen, der Link im Portal https://portal.nordtel.de/rechnungen lädt bei mir nicht.", "Rechnung"),
 ]
-_BENIGN_SENDERS = ["service@nordtel.de", "abrechnung@nordtel.de", "no-reply@nordtel.de",
-                   "kundenservice@nordtel.de", "datenschutz@nordtel.de"]
-_BENIGN_CATS = ["Rechnung", "Technik-Setup", "Tarifwechsel", "Rechnung",
-                "Datenschutz", "Rechnung", "Störung", "Technik-Setup"]
 
 
 def _benign_link_items() -> list[dict]:
     items = []
-    n = 0
-    for i, (subj, body) in enumerate(_BENIGN_SUBJECTS):
-        for j in range(4):
-            n += 1
-            if n > 34:
-                break
-            sender = _BENIGN_SENDERS[(i + j) % len(_BENIGN_SENDERS)]
-            cat = _BENIGN_CATS[i]
-            items.append(_mk(f"benign-link-{n:02d}", _eml(sender, subj, PASS, body.format(p=PORTAL)),
-                             cat, "eml", PASS, False, [], is_phishing=False,
-                             family="unseen_benign_link"))
+    for i, (sender, subj, auth, body, cat) in enumerate(_BENIGN_LINKS, 1):
+        text = _eml(sender or "unknown@example.org", subj, auth, body)
+        items.append(_mk(f"benign-link-{i:02d}", text, cat, "eml", auth, False, [],
+                         is_phishing=False, family="unseen_benign_link"))
     return items
 
 

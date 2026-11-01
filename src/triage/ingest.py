@@ -143,6 +143,11 @@ def sender_trust(request: Request) -> TrustVerdict:
 # NordTel's own domains. The ONLY brand knowledge the detector has -- so it can
 # recognise impersonation of the company it protects, not the attacker's domains.
 OWN_DOMAINS = ("nordtel.de", "portal.nordtel.de", "mx.nordtel.de")
+# The registrable domains NordTel actually owns -- a combo-squat is only suspicious
+# when the brand appears in a domain that is NOT one of these.
+OWN_REGISTRABLE = ("nordtel.de",)
+# The brand label(s) an attacker would combo-squat (e.g. nordtel-billing.co).
+OWN_BRAND_LABELS = ("nordtel",)
 
 _URGENCY = re.compile(
     r"\b(sofort|umgehend|dringend|sofortig|binnen|innerhalb von \d+\s*(stunden|minuten)|"
@@ -219,6 +224,33 @@ def _domain_relation(host: str) -> str:
     return "unrelated"
 
 
+def _dehyphenate(s: str) -> str:
+    """Strip hyphens, dots and spaces so 'n-o-r-d-t-e-l' and 'nordtel-billing'
+    collapse: the attacker's separators no longer hide the brand."""
+    return re.sub(r"[-.\s_]", "", s)
+
+
+def _is_combo_squat(host: str) -> bool:
+    """Combo-squat: an own BRAND label appears inside a FOREIGN registrable domain
+    (Round 4 #6).
+
+    De-hyphenate and homoglyph-fold the host, take its registrable domain, and if
+    that domain is not one NordTel owns but still contains the brand label
+    ('nordtel'), it is impersonation by combination/separation:
+      nordtel-billing.co, nordtel-kundenservice.com, n-o-r-d-t-e-l.de (foreign TLD).
+    An exact own domain (nordtel.de) is never a combo-squat.
+    """
+    decoded = _decode_idn(host)
+    folded = _fold(decoded)
+    reg = _registrable(folded)
+    # "own" is an EXACT registrable match (hyphens are part of a domain, so
+    # n-o-r-d-t-e-l.de is NOT nordtel.de -- it is a separate registration).
+    if reg in OWN_REGISTRABLE:
+        return False
+    reg_squashed = _dehyphenate(reg)
+    return any(_dehyphenate(lbl) in reg_squashed for lbl in OWN_BRAND_LABELS)
+
+
 def _links(text: str) -> list[tuple[str, str]]:
     """Return (visible_text, href) pairs for markdown/HTML links."""
     pairs = [(vis, href) for vis, href in _MD_LINK.findall(text)]
@@ -233,6 +265,7 @@ PHISH_WEIGHTS = {
     "auth_fail": 1,
     "auth_missing": 1,
     "lookalike_domain": 2,
+    "combo_squat_domain": 2,
     "link_text_href_mismatch": 2,
     "urgency_and_payment": 1,
 }
@@ -262,6 +295,12 @@ def detect_phishing(request: Request, trust: "TrustVerdict | None" = None) -> Ph
     relations = {h: _domain_relation(h) for h in hosts}
     if any(rel == "lookalike" for rel in relations.values()):
         signals["lookalike_domain"] = PHISH_WEIGHTS["lookalike_domain"]
+
+    # (2b) Combo-squat: the brand label inside a foreign registrable domain. This
+    # fires independently of auth, which is the point -- an authenticated
+    # lookalike (compromised sender under auth=pass) is still caught.
+    if any(_is_combo_squat(h) for h in hosts):
+        signals["combo_squat_domain"] = PHISH_WEIGHTS["combo_squat_domain"]
 
     # (3) Link text claims one domain, href points to another.
     for vis, href in _links(text):
