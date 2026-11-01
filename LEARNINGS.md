@@ -108,3 +108,201 @@ The scores are on my own synthetic corpus, generated in this repo. They show the
 behaves as designed on those cases — including two cases where it does not — and they are
 **not** a benchmark and say nothing about real traffic. Nothing here is certified or
 audit-ready — it's a portfolio build.
+
+---
+
+# v2 — turning it into something I could hand a customer
+
+v1 proved the pipeline behaves as designed and, importantly, exposed two real gaps once the
+corpus was big enough. v2 is about closing those gaps honestly, putting real models behind
+the protocol I already had, and building the dataset, eval, delivery and documentation a
+Forward Deployed Engineer would hand over. The rule I kept: **the default path stays offline
+and free, and no number appears unless a run produced it.**
+
+## Real models, same seams
+
+- **OllamaClient behind the v1 `LLMClient` protocol.** It asks a local SLM
+  (`qwen2.5:1.5b-instruct`) for constrained JSON `{category, fields, confidence}` at
+  temperature 0 with a timeout. The decision I'm proudest of is the **fallback**: any
+  failure — connection refused, timeout, malformed JSON, a category outside the allowed set
+  — returns the v1 baseline answer and records why. An unavailable model degrades quality,
+  never safety, and never crashes a request. `httpx` is imported lazily so the module still
+  imports with the standard library alone.
+- **Embedding retrieval, local and multilingual.** `intfloat/multilingual-e5-small` over my
+  own category descriptions plus a few few-shot examples. The point is the v1 misses were
+  near-neighbour categories (Vertrag vs. Tarifwechsel), which keywords can't separate but
+  embeddings should. The eval measures whether they actually do — I'm not assuming it.
+- **Lazy imports everywhere.** numpy, sentence-transformers, matplotlib, fastapi all live
+  inside the functions that use them. Importing any module with the stdlib must not raise;
+  that invariant is what keeps CI green with no downloads, and the tests mock the model
+  boundaries (fake httpx, fake encoder).
+
+## Closing the v1 gaps
+
+- **Injection recall was 0.9259** because the regexes keyed on contiguous phrasing. v2
+  normalises first — NFKC, strip zero-width/bidi characters, fold a small
+  Cyrillic/Greek homoglyph table, collapse deliberate single-letter spacing — then matches.
+  I added a "repeat/verbatim your instructions" pattern (the second miss) and a step that
+  decodes short base64 blobs and re-scans them. On the generated test split the four
+  obfuscation families (plain, spaced, homoglyph, base64) are all caught, with zero false
+  positives on the benign look-alikes. The de-spacer only collapses runs of ≥4 single
+  characters, so I don't mangle ordinary short text — an explicit precision/recall trade.
+- **The phishing false positive** (`wget …/payload` matched the `pay` substring) is fixed
+  with a word-boundary payment-link rule. A genuine `pay-…/login` link still matches; the
+  malicious `/payload` no longer counts as a payment link (it's still malicious, just not
+  that label).
+- **Post-model PII re-check.** After the SLM returns, any field value containing an
+  unmasked IBAN/email/phone/customer-number is dropped and flagged. So even if a model
+  echoes a raw value, it can't leak onward.
+
+## Data and eval, done so the numbers mean something
+
+- **Seeded dataset.** `data/generator.py` builds ~2,050 items from templates with a tone
+  knob, a typo injector and a German/English mixer, realistic auth headers, and explicit
+  attack/PII families — then writes a stratified train/dev/test split. One fixed seed means
+  the customer and I run byte-for-byte identical data (I verified by hashing two runs). The
+  test split is held out; the eval reads only `test.jsonl`.
+- **Three systems, one interface.** v1 regex, embeddings-only, embeddings + SLM, scored the
+  same way: accuracy, macro-F1, per-class precision/recall, confusion matrix (PNG + CSV),
+  latency p50/p95, and detector precision/recall. The error analysis and datasheet are
+  generated from the data, never typed.
+- **Pending by design.** Offline (and in CI) only System A runs; B and C are written as
+  `"pending real run"` with no numbers. `make eval-real` fills them on a machine with the
+  models. This is the honest version of "here are my results" — the numbers show up when a
+  real run produces them.
+
+## Delivery and docs
+
+A FastAPI `POST /triage` over the unchanged pipeline (serialised without the token map, so
+no raw PII leaves the process), a Dockerfile and a compose file for api + ollama, an
+architecture doc with trust boundaries and a data-flow view of where PII lives, 6 ADRs, and
+a STRIDE threat model mapped to OWASP LLM Top 10 (2025) and MITRE ATLAS with the covering
+test named for each threat.
+
+## Honest limits (unchanged in spirit from v1)
+
+Everything is measured on **synthetic** data generated in this repo. It shows the pipeline
+behaves as designed on those cases and is **not** a benchmark or a statement about real
+traffic. Detection is heuristic plus a small model, so a novel enough injection can still
+slip past; the embedding-similarity check narrows that but does not close it. Nothing here
+is certified or audit-ready — it's a portfolio build, written so I can defend every line.
+
+---
+
+# Round 3 — making the comparison honest
+
+A second review caught the places where v2 still flattered itself. The fixes below are
+less about new features and more about not fooling myself (or a reader).
+
+## The eval was leaking and double-scoring
+
+- **Split by template, score once.** The harness had been scoring the test split twice
+  (once per "bucket" and once for `overall_test`) and still carried an always-empty
+  `seen_template` bucket. Now the splits are simply dev / test / unseen, each scored
+  exactly once, and `overall_test` is just the test report. `slm_diagnostics` is counted
+  once per split.
+- **Category metric only on category items.** Phishing and injection rows were being
+  mixed into the category accuracy. They are detector problems; the category metric now
+  runs only on the category-bearing families.
+- **A real "unseen" set.** I grew `eval/unseen/` to 200+ hand-written items (every
+  category in German / English / mixed, plus indirect/forwarded, obfuscated, role-play and
+  base64/rot13/leetspeak injections, lookalike-domain phishing, and benign-with-links
+  mail). The overlap gate now also checks the unseen set against the generator's raw
+  templates, not just the materialised train rows. The test-vs-unseen gap is the honest
+  headline: a regex that looks strong on held-out templates it has seen the shape of can
+  still fall to ~0.5 on genuinely new phrasing.
+
+## The detectors were cheating
+
+- **Phishing knew the generator's domains.** The old lookalike regex literally listed the
+  dataset's bad domains. I deleted it and scored generic signals instead: auth fail/missing,
+  a lookalike of NordTel's *own* domains (punycode decode + homoglyph fold + edit distance),
+  link text/href mismatch, and urgency+payment — weighted against a documented threshold. A
+  test fails if any generator domain reappears in `src/`.
+- **The injection "embedding check" flagged almost everything.** The fixed 0.80 cosine
+  cut-off was flagging 99/100 normal messages. It is gone. The verdict is now the normalised
+  rules OR a trained injection-LR whose threshold is chosen on dev (best F1 with precision
+  ≥ 0.9) and stored in `models/manifest.json`.
+
+## A model, trained properly
+
+System D is a calibrated LogisticRegression on `multilingual-e5-small` embeddings, fit on
+`train.jsonl` only, with the injection threshold chosen on `dev.jsonl` only. Artifacts are
+seeded and deterministic (same seed → same coefficients, checked in a test with a fake
+embedder) and ship with a manifest (seed, versions, embedding model, labels, sha256 of the
+train file, threshold). System E trusts D when its calibrated probability is high and pays
+for the SLM only on the low-confidence tail, reporting its SLM-call rate.
+
+## Calibration, because confidence lied
+
+C's self-reported confidence sits near 0.95 whether or not it is right, so I report its ECE
+honestly and do **not** route on it. D is calibrated on dev, and its calibrated probability
+drives the human-review threshold (ADR 0007). ECE and a reliability table/PNG are reported
+for both.
+
+## PII, checked against the truth
+
+The masker now tolerates typo'd labels (edit distance ≤ 2), partial and country-code-typo'd
+IBANs (ED44/D44), typo'd streets and cities, truncated-TLD emails, and signature names after
+any greeting — and the generator records each PII value in both pre- and post-typo form. The
+leak check (`eval/pii_leak_check.py`) fuzzy-searches every ground-truth value over all test
+and unseen items (partial ratio ≥ 0.85, any 8+ char IBAN fragment counts). It runs in CI and
+the committed count is 0, measured against the truth rather than the masker's own regex.
+
+## Honest limits (Round 3)
+
+Still synthetic, still not a benchmark. The committed `results-v2.json` is a **pending**
+placeholder on purpose: every metric, cost and calibration table says "pending real run"
+until the models are run locally, because only System A runs without them and a one-system
+table would be misleading. Run `make train && make eval-real && make docs` to fill them in.
+
+---
+
+# Round 4 — closing the gaps a real run exposed
+
+The second real run was the most useful yet: E came out best, but it also showed six
+honest defects. Fixing them was mostly about making the code do what the docs claimed.
+
+- **The injection LR was dead code.** `pipeline.run` accepted `injection_model` and
+  `injection_threshold`, but nothing passed them, so every injection verdict was
+  rules-only. Now `learned.load_injection_detector` reads `injection_lr.joblib` and the
+  dev threshold from the manifest, the API and the harness pass them through, and the
+  detector reports P/R/FPR twice per split (rules-only vs rules-OR-model). A stub-model
+  test proves the API and harness flag an item the rules alone miss.
+- **C's cost was ~16x too low** because the SLM's CPU is spent in the Ollama process, not
+  the harness. `eval/procstat.py` now reads Ollama's utime+stime and RSS from `/proc`
+  around each SLM system's pass; cost per 1k is harness CPU-s + Ollama CPU-s, and the two
+  RSS figures are reported separately. The VM price label states instance, region
+  (us-east-1, not the earlier mislabelled eu-central-1), date and source — as an
+  assumption, not a quote.
+- **Tests broke on scikit-learn 1.9** because `multi_class="auto"` was removed. Dropped
+  it (LogisticRegression picks multinomial on its own) and pinned `scikit-learn>=1.3,<2`;
+  CI runs the suite on 1.7 and on >= 1.8.
+- **"Calibrated on dev" was false** — `CalibratedClassifierCV(cv=3)` refits on train. Now
+  the base LR is fit on train and the sigmoid calibrator is fit on dev via `cv='prefit'`,
+  so the claim is true. The human-review threshold and E's routing threshold are chosen
+  **in code on dev** from D's probabilities (smallest threshold whose auto-handled
+  accuracy clears the target; the expected review rate is reported), written to
+  `results-v2.json`, and `make docs` fills ADR 0007 and architecture §8 from it. E routes
+  on that dev threshold instead of a hard-coded 0.5 and has its own 2% fallback gate.
+- **4 test items still leaked PII.** The partial-ratio matcher was aligned-Hamming, which
+  collapses after a single inserted/deleted character; it is now a real edit-distance
+  partial ratio. The masker also masks a typo'd street before an `[[ADDRESS]]` token and
+  signature names with a one-letter or typo'd token. The leak check runs on *every* item
+  with ground-truth PII (not only `has_pii`), against the pre- and post-typo values; the
+  committed count is 0.
+- **Auth alone separated unseen phishing from benign.** The unseen set now has auth=PASS
+  phishing (authenticated lookalike / combo-squat / brand-like senders) and auth=FAIL or
+  missing *legitimate* mail (forwards, a mailing list, a customer who writes "Mahnung …
+  sofort zahlen" about their own invoice). A new combo-squat signal fires when the brand
+  label appears inside a foreign registrable domain, so an authenticated `nordtel-billing.co`
+  is still caught. Unseen phishing P/R is reported split by auth, and the few benign
+  fail/missing cases the detector over-flags are shown rather than hidden — the point is
+  that auth is not a clean separator.
+
+## Honest limits (Round 4)
+
+Unchanged in spirit: synthetic data, not a benchmark, every real-model number pending a
+local run. System C (the SLM classifier) is, on the unseen split, *worse* than the plain
+regex and over-predicts `Sonstiges`; E wins by trusting the calibrated LR and paying for
+the SLM only on the uncertain tail. Those facts are stated in `docs/error-analysis.md`.

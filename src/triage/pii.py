@@ -21,25 +21,112 @@ class MaskResult:
     token_map: dict[str, str] = field(default_factory=dict)
 
 
-# German IBAN: DE + 2 check digits + 18 digits, tolerant of spaces.
-_IBAN = re.compile(r"\bDE\d{2}(?:\s?\d{4}){4}\s?\d{2}\b", re.IGNORECASE)
-_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+# IBAN. Round 3: the old pattern required a correct "DE" country code, so a typo
+# like "ED44 ..." or "D44 ..." leaked. We now match a German IBAN tolerantly: an
+# optional/garbled 2-letter country code (or a single letter) followed by the 2
+# check digits and the 18-digit body in 4-digit groups. The country code is
+# matched loosely (any two letters, or one), so ED44/D44 are caught; validity is
+# not the point -- masking is.
+_IBAN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"(?:[A-Za-z]{1,2})?\s?\d{2}(?:[ \-]?\d{4}){4}[ \-]?\d{2}"
+    r"(?![0-9])",
+)
+# A bare IBAN body fragment: 4-digit groups that look like part of an IBAN even if
+# the country code is missing entirely. Masked after the labelled form.
+_IBAN_FRAGMENT = re.compile(r"(?<![A-Za-z0-9])\d{4}(?:[ \-]?\d{4}){3,}(?![0-9])")
+# Email, tolerant of a truncated TLD (e.g. "example.d" or "example.").
+_EMAIL = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{0,}")
 # German phone: optional +49 / 0, then digits with spaces, slashes or dashes.
 _PHONE = re.compile(r"(?<!\w)(?:\+49|0)[\d\s/\-]{6,}\d")
-# Customer / Kundennummer: label followed by digits.
-_CUSTOMER = re.compile(
-    r"(?:Kundennummer|Kundennr\.?|Vertragsnummer|Kd\.?-?Nr\.?)\s*:?\s*([A-Z]?\d{5,})",
+
+# Customer / contract id: a FUZZY label (handled in code via Levenshtein on label
+# tokens) followed by an id of >=5 digits. We also keep a regex for the common
+# spellings as a fast path, plus a bare long-digit fallback.
+_CUSTOMER_LABELLED = re.compile(
+    r"(?:kund\w*|kd\.?-?\s*nr\.?|vertrags?\w*)\s*[:.]?\s*([A-Za-z]?\d[\d\-.]{4,})",
     re.IGNORECASE,
 )
-# Postal address: street + number, then optional "PLZ Ort" on same or next line.
-_ADDRESS = re.compile(
-    r"\b[A-ZÄÖÜ][a-zäöüß]+(?:straße|str\.?|weg|platz|allee|gasse|ring)\s+\d+[a-z]?"
-    r"(?:,?\s*\d{5}\s+[A-ZÄÖÜ][a-zäöüß]+)?",
+_CUSTOMER_BARE = re.compile(r"(?<!\d)([A-Za-z]?\d{8,})(?!\d)")
+# Any "<label>: <id>" where the label is close (edit distance <= 2) to a known PII
+# label. Catches "Kundennummr: 12345", "Vretragsnummer 998", "Vertragsnr 55-99-1234".
+_LABELLED_ID = re.compile(
+    r"([A-Za-zÄÖÜäöüß.\-]{3,15})\s*[:.]?\s*([A-Za-z]?\d[\d\-.]{3,}(?:[ \-]?\d+)*)",
 )
-# Name after a German greeting ("Mit freundlichen Grüßen\nVorname Nachname").
+_PII_LABELS = ("kundennummer", "kundennr", "kd.-nr", "kdnr", "vertragsnummer",
+               "vertragsnr", "nummer", "nr")
+
+# Postal address: a street line ending in a house number, optionally followed by
+# "PLZ Ort". The street may be multi-word ("Am Alten Markt 3") or a single
+# compound ("Beispielstraße 12"), so we allow an optional capitalised prefix run
+# before the final street token + number. Tolerate a typo'd suffix via the roots
+# and an optional single inserted letter in "straße" (Beisspieltsraße).
+_ADDRESS = re.compile(
+    r"\b(?:[A-ZÄÖÜ][a-zäöüß]+\s+){0,3}"
+    r"(?:"
+    # compound ending in a (possibly typo'd) street suffix. The "straße" root is
+    # matched loosely so dropped/swapped letters (traße, strase, tsraße) still hit.
+    r"[A-ZÄÖÜ][a-zäöüß]*(?:s?t?ra[sß]{0,2}e|str\.?|weg|platz|allee|gasse|ring|markt|damm|ufer)"
+    r"|"
+    r"(?:Markt|Damm|Ufer|Platz|Ring|Allee|Weg)"
+    r")"
+    r"\s*\d+[a-z]?"
+    r"(?:,?\s*\d{4,5}\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+)?",
+    re.IGNORECASE,
+)
+# A standalone "PLZ Ort" (4-5 digit postcode + a city token, typo-tolerant first
+# letter) so a city survives even if the street match stops early.
+_PLZ_ORT = re.compile(r"\b\d{4,5}\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+(?:[- ][A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+)?")
+
+# A capitalised word + house number sitting immediately before an existing
+# [[ADDRESS_n]] placeholder (Round 4 #5). When the postcode+city were masked but a
+# badly-typo'd street ("Beispielstarße 41,", "Beeispielstrßae 2,") was left, this
+# pass masks the street+number too. The street token is only required to be a
+# capitalised word of >=4 letters, so any typo of the suffix still matches.
+_ADDRESS_BEFORE_TOKEN = re.compile(
+    r"([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]{3,}\s*\d+[a-z]?)\s*,?\s*(?=\[\[ADDRESS_\d+\]\])"
+)
+
+
+def _levenshtein(a: str, b: str) -> int:
+    """Edit distance (stdlib, small strings only)."""
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 2:  # we only ever care about <= 2
+        return 3
+    prev = list(range(lb + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[lb]
+
+
+def _is_pii_label(token: str) -> bool:
+    """True if `token` is within edit distance 2 of a known PII label."""
+    t = token.lower().strip(".:- ")
+    return any(_levenshtein(t, lab) <= 2 for lab in _PII_LABELS)
+# An explicit name label ("Signatur:", "Name:", "Unterschrift:", "Absender:")
+# followed by a capitalised personal name (optionally titled / hyphenated).
+_NAME_LABELLED = re.compile(
+    r"(?:signatur|name|unterschrift|absender|von)\s*[:]\s*"
+    r"((?:Dr\.?\s+|Prof\.?\s+)?[A-ZÄÖÜ][a-zäöüß]+(?:[-\s]+[A-ZÄÖÜ][a-zäöüß]+){1,3})",
+    re.IGNORECASE,
+)
+# Signature name after a sign-off. Round 3: tolerate ANY greeting (typo'd or not)
+# by matching a short greeting-ish line followed by a capitalised full name on the
+# next line, plus the explicit roots. A name may contain a typo in any token (we
+# only require the capitalisation shape), so "Finn uMsterfrau" still matches.
 _NAME = re.compile(
-    r"(?:Mit freundlichen Grüßen|Viele Grüße|Beste Grüße|Grüße)\s*[,]?\s*\n+\s*"
-    r"([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,2})",
+    r"(?:mit\s+freundlichen\s+gr\w+|viele\s+gr\w+|beste\s+gr\w+|gr\w*\u00df\w*|"
+    r"gruess\w*|best\s+regards|regards|mfg|lg|danke(?:\s+und\s+gr\w+)?)\s*[,]?\s*\n+\s*"
+    # Name tokens: first token may be a single letter (a typo dropped a letter,
+    # e.g. "i Weber"); require at least two whitespace-separated tokens so a lone
+    # word is not mistaken for a name.
+    r"((?:Dr\.?\s+|Prof\.?\s+)?[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]*(?:[-\s]+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß]+){1,3})",
+    re.IGNORECASE,
 )
 
 
@@ -65,18 +152,123 @@ def _mask_with(
     return rx.sub(repl, text)
 
 
+# Fallback: a capitalised 2-4 word personal name standing alone on a line. Used
+# only for the trailing signature line, where the preceding sign-off may be typo'd
+# beyond recognition ("Dnake", "rGüße", "GL"), so matching on the sign-off text is
+# unreliable. A lone capitalised full name on the final line is a signature.
+# Tolerate a typo inside the name ("uMsterfrau") by allowing mixed case in the
+# tail, while still requiring a capitalised first letter per token.
+_SIG_NAME_LINE = re.compile(
+    r"^\s*((?:Dr\.?\s+|Prof\.?\s+)?[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+(?:[-\s]+[A-ZÄÖÜ][A-Za-zÄÖÜäöüß]+){1,3})\s*$"
+)
+
+
+# A short trailing line that looks like a 2-3 word personal name even if a typo
+# lower-cased or shortened a token ("Sophie eBrg", "a Klein", "Lukas chmidt").
+# The first token may be a single letter. Conservative: only used on the final
+# line after a sign-off-ish or short line, so ordinary sentences are not masked.
+_NAMEISH_LINE = re.compile(
+    r"^\s*((?:Dr\.?\s+|Prof\.?\s+)?[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{0,19}"
+    r"(?:\s+[A-Za-zÄÖÜäöü][A-Za-zÄÖÜäöüß'-]{0,19}){1,2})\s*$"
+)
+# Words that commonly end a message but are NOT names, so we don't mask them.
+_NOT_A_NAME = {
+    "danke", "grüße", "gruesse", "grüsse", "regards", "mfg", "lg", "hallo",
+    "tschüss", "ciao", "cheers", "thanks", "bye", "viele", "beste", "freundlichen",
+}
+# A loose sign-off detector for the PRECEDING line: a greeting root (grüß/gruess),
+# "danke"/"dank", "regards", "mfg"/"lg", possibly typo'd. Used to confirm the final
+# line is the signature of a block even when the sign-off line is long/garbled.
+_SIGNOFF_LINEISH = re.compile(
+    r"gr\w*\u00df|gruess|gr[uü]ess|dank|regards|mit\s+freundlich|viele\s+gr|"
+    r"beste\s+gr|\bmfg\b|\blg\b",
+    re.IGNORECASE,
+)
+
+
+def _mask_trailing_signature(
+    text: str, counter: dict[str, int], token_map: dict[str, str]
+) -> str:
+    """Mask a personal name sitting alone on the last non-empty line (signature)."""
+    lines = text.split("\n")
+    idx = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if idx is None:
+        return text
+    line = lines[idx]
+    if "[[" in line:
+        return text
+
+    name = None
+    m = _SIG_NAME_LINE.match(line)
+    if m:
+        name = m.group(1)
+    else:
+        # Typo-tolerant fallback: a name-ish final line whose tokens are not common
+        # sign-off words, where the previous non-empty line is short OR looks like a
+        # (possibly typo'd) sign-off -- i.e. this is the name of a signature block.
+        m2 = _NAMEISH_LINE.match(line)
+        if m2:
+            cand = m2.group(1)
+            tokens = cand.lower().replace("-", " ").split()
+            prev = lines[idx - 1].strip() if idx > 0 else ""
+            looks_like_block = (
+                prev == "" or len(prev.split()) <= 3 or bool(_SIGNOFF_LINEISH.search(prev))
+            )
+            not_signoff = not any(t in _NOT_A_NAME for t in tokens)
+            if looks_like_block and not_signoff and 2 <= len(tokens) <= 3:
+                name = cand
+    if not name:
+        return text
+    counter["NAME"] = counter.get("NAME", 0) + 1
+    placeholder = f"[[NAME_{counter['NAME']}]]"
+    token_map[placeholder] = name
+    lines[idx] = lines[idx].replace(name, placeholder)
+    return "\n".join(lines)
+
+
+def _mask_fuzzy_labelled_ids(
+    text: str, counter: dict[str, int], token_map: dict[str, str]
+) -> str:
+    """Mask `<label>: <id>` where the label is within edit distance 2 of a known
+    PII label but the fast-path regex did not already catch it (typo'd labels)."""
+    def repl(m: re.Match) -> str:
+        label, ident = m.group(1), m.group(2)
+        if "[[" in ident or not _is_pii_label(label):
+            return m.group(0)
+        counter["CUSTOMER"] = counter.get("CUSTOMER", 0) + 1
+        placeholder = f"[[CUSTOMER_{counter['CUSTOMER']}]]"
+        token_map[placeholder] = ident
+        return m.group(0).replace(ident, placeholder)
+
+    return _LABELLED_ID.sub(repl, text)
+
+
 def mask(text: str) -> MaskResult:
-    """Mask all supported PII types, returning masked text + reverse map (R6-R8)."""
+    """Mask all supported PII types, returning masked text + reverse map (R6-R8).
+
+    Order matters: IBAN (full and typo'd country code) and IBAN fragments are
+    masked BEFORE phone, so a grouped IBAN body is not eaten by the phone pattern.
+    Then email, labelled/fuzzy-labelled customer ids, the bare long-digit fallback,
+    address + postcode/city, and finally the signature name (explicit label, then
+    sign-off regex, then a trailing-line fallback for garbled sign-offs).
+    """
     counter: dict[str, int] = {}
     token_map: dict[str, str] = {}
     out = text
-    # Specific/structured first.
     out = _mask_with(out, _IBAN, "IBAN", counter, token_map)
+    out = _mask_with(out, _IBAN_FRAGMENT, "IBAN", counter, token_map)
     out = _mask_with(out, _EMAIL, "EMAIL", counter, token_map)
-    out = _mask_with(out, _CUSTOMER, "CUSTOMER", counter, token_map, group=1)
-    out = _mask_with(out, _ADDRESS, "ADDRESS", counter, token_map)
-    out = _mask_with(out, _NAME, "NAME", counter, token_map, group=1)
     out = _mask_with(out, _PHONE, "PHONE", counter, token_map)
+    out = _mask_with(out, _CUSTOMER_LABELLED, "CUSTOMER", counter, token_map, group=1)
+    out = _mask_fuzzy_labelled_ids(out, counter, token_map)
+    out = _mask_with(out, _CUSTOMER_BARE, "CUSTOMER", counter, token_map, group=1)
+    out = _mask_with(out, _ADDRESS, "ADDRESS", counter, token_map)
+    out = _mask_with(out, _PLZ_ORT, "ADDRESS", counter, token_map)
+    # Mask a street+number still sitting before an [[ADDRESS]] placeholder.
+    out = _mask_with(out, _ADDRESS_BEFORE_TOKEN, "ADDRESS", counter, token_map, group=1)
+    out = _mask_with(out, _NAME_LABELLED, "NAME", counter, token_map, group=1)
+    out = _mask_with(out, _NAME, "NAME", counter, token_map, group=1)
+    out = _mask_trailing_signature(out, counter, token_map)
     return MaskResult(masked_text=out, token_map=token_map)
 
 
@@ -91,3 +283,165 @@ def unmask(masked_text: str, token_map: dict[str, str]) -> str:
 def contains_pii_placeholder(text: str) -> bool:
     """True if the text still carries a masking placeholder."""
     return bool(re.search(r"\[\[[A-Z]+_\d+\]\]", text))
+
+
+# Raw-PII detectors for the SLM-output re-check (V22). We ignore masking
+# placeholders (they are safe) and look for unmasked structured values that must
+# never leave the model boundary: IBAN, email, German phone, customer number.
+_RAW_PII = (
+    ("iban", _IBAN),
+    ("email", _EMAIL),
+    ("phone", _PHONE),
+    ("customer", _CUSTOMER_LABELLED),
+)
+
+
+def contains_raw_pii(text: str) -> bool:
+    """True if `text` still contains an unmasked PII value (V22).
+
+    Used after the SLM returns to confirm the model did not echo a raw value back.
+    Placeholders like [[IBAN_1]] are stripped first so they never count as a leak.
+    """
+    stripped = re.sub(r"\[\[[A-Z]+_\d+\]\]", "", text)
+    return any(rx.search(stripped) for _name, rx in _RAW_PII)
+
+
+def raw_pii_kinds(text: str) -> list[str]:
+    """Which raw-PII kinds appear in `text` (for an explainable flag)."""
+    stripped = re.sub(r"\[\[[A-Z]+_\d+\]\]", "", text)
+    return [name for name, rx in _RAW_PII if rx.search(stripped)]
+
+
+def _loose(value: str) -> str:
+    """Collapse whitespace/casing so 'DE89 3704' and 'de893704' compare equal."""
+    return re.sub(r"\s+", "", value).lower()
+
+
+def ground_truth_leaks(masked_text: str, pii_truth: list[str]) -> list[str]:
+    """Return the ground-truth PII values that SURVIVED masking (review fix #2).
+
+    This is the honest leak check: it compares the masked text against the TRUE
+    values the generator placed (`pii_truth`), not against the masker's own regex
+    (which would be circular -- the masker can't catch a value its regex missed,
+    and then its regex would also say "no leak"). A value counts as leaked if its
+    whitespace/case-insensitive form still appears in the masked output.
+    """
+    blob = _loose(masked_text)
+    leaked: list[str] = []
+    for value in pii_truth:
+        v = _loose(value)
+        if not v:
+            continue
+        if v in blob:
+            leaked.append(value)
+    return leaked
+
+
+def _edit_distance_full(a: str, b: str) -> int:
+    """Levenshtein distance (insert/delete/substitute), no length cap."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[len(b)]
+
+
+def _partial_ratio(needle: str, haystack: str) -> float:
+    """Edit-distance partial ratio of `needle` against the best window of
+    `haystack` (Round 4 #5).
+
+    Tolerates inserted, deleted and swapped characters: for each candidate start
+    position in `haystack` (anchored where a needle character actually occurs, so
+    we don't scan every offset), score a window of length len(needle)+2 with a real
+    Levenshtein distance and keep the best. Returns 1 - min_dist/len(needle).
+    Anchoring on matching characters keeps it fast on long masked texts while still
+    catching a dropped letter, e.g. "Clara Musterrau" vs "Clara Musterfrau" ~0.93.
+    """
+    n, h = len(needle), len(haystack)
+    if n == 0:
+        return 1.0
+    if h == 0:
+        return 0.0
+    if needle in haystack:
+        return 1.0
+    anchor = needle[0]
+    best = n
+    # Candidate starts: positions where the needle's first char appears, plus a
+    # couple of offsets before each so a leading deletion is still covered.
+    starts = {max(0, i - 1) for i, ch in enumerate(haystack) if ch == anchor}
+    starts.add(0)
+    # Try a few window widths around len(needle) so a dropped/inserted character
+    # is absorbed by the window rather than counted as extra edits.
+    widths = (n - 1, n, n + 1, n + 2)
+    for start in starts:
+        for w in widths:
+            if w < 1:
+                continue
+            d = _edit_distance_full(needle, haystack[start:start + w])
+            if d < best:
+                best = d
+                if best == 0:
+                    return 1.0
+    return max(0.0, 1.0 - best / n)
+
+
+_IBAN_FRAG = re.compile(r"[A-Za-z]{0,2}\d(?:[ \-]?\d)+")
+
+
+def fuzzy_ground_truth_leaks(
+    masked_text: str, pii_values: list[str], partial_threshold: float = 0.85
+) -> list[dict]:
+    """Fuzzy ground-truth leak check (Round 3, eval/pii_leak_check.py).
+
+    For each ground-truth value, normalise case/whitespace and:
+      * count it leaked if its loose form is a substring of the masked text, OR
+      * the best partial-ratio against the masked text is >= `partial_threshold`, OR
+      * (for IBAN-like values) any contiguous fragment of 8+ characters survives.
+    Returns a list of {"value", "reason", "score"} for the values that leaked.
+    """
+    loose_blob = _loose(masked_text)
+    leaks: list[dict] = []
+    for value in pii_values:
+        v = _loose(value)
+        if not v:
+            continue
+        if v in loose_blob:
+            leaks.append({"value": value, "reason": "exact", "score": 1.0})
+            continue
+        # IBAN-fragment rule: any 8+ char digit fragment of the value that survives.
+        if _IBAN_FRAG.fullmatch(value.strip()) or _looks_ibanish(value):
+            frag = re.sub(r"[^0-9a-z]", "", value.lower())
+            hit = _longest_common_fragment(frag, loose_blob)
+            if hit >= 8:
+                leaks.append({"value": value, "reason": f"iban_fragment>={hit}", "score": 1.0})
+                continue
+        pr = _partial_ratio(v, loose_blob)
+        if pr >= partial_threshold:
+            leaks.append({"value": value, "reason": "partial_ratio", "score": round(pr, 3)})
+    return leaks
+
+
+def _looks_ibanish(value: str) -> bool:
+    digits = sum(c.isdigit() for c in value)
+    return digits >= 10
+
+
+def _longest_common_fragment(needle: str, haystack: str) -> int:
+    """Length of the longest contiguous substring of `needle` found in `haystack`."""
+    best = 0
+    n = len(needle)
+    for i in range(n):
+        for j in range(i + best + 1, n + 1):
+            if needle[i:j] in haystack:
+                best = max(best, j - i)
+            else:
+                break
+    return best

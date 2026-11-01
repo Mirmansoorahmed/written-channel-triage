@@ -14,6 +14,16 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+# Real-model path (V1-V4): local SLM over HTTP + multilingual embeddings.
+models = ["httpx>=0.27", "numpy>=1.24", "sentence-transformers>=2.2"]
+# Eval artifacts (V11-V16): metrics + confusion-matrix PNG + trained classifier.
+# scikit-learn is pinned to a tested range (1.3 up to, not including, 2.0) so a
+# future breaking release cannot silently change results.
+eval = ["numpy>=1.24", "matplotlib>=3.7", "scikit-learn>=1.3,<2", "joblib>=1.3"]
+# Trained-classifier path (Round 3): LogisticRegression on e5 embeddings.
+learned = ["numpy>=1.24", "scikit-learn>=1.3,<2", "joblib>=1.3", "sentence-transformers>=2.2"]
+# Delivery surface (V28): FastAPI POST /triage.
+api = ["fastapi>=0.110", "uvicorn>=0.27", "pydantic>=2.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

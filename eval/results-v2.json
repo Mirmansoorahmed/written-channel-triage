@@ -1,0 +1,56 @@
+{
+  "note": "Synthetic data only; fictional NordTel GmbH. Not a certification. All numbers are produced by this eval run. Split is by template family; the unseen set is hand-varied and never seen by the model. COMMITTED STATE: pending real run -- run the harness locally to populate real numbers (make eval / make eval-real).",
+  "run_mode": "pending real run (committed placeholder)",
+  "sizes": {
+    "dev": 569,
+    "test": 594,
+    "unseen": 200
+  },
+  "category_families": [
+    "injection_negative",
+    "normal",
+    "out_of_hours",
+    "phishing_negative",
+    "pii_heavy",
+    "unseen_benign_link",
+    "unseen_injection_negative",
+    "unseen_normal",
+    "unseen_out_of_hours",
+    "unseen_pii"
+  ],
+  "systems": {
+    "A_v1_regex": {
+      "status": "pending real run"
+    },
+    "B_embeddings_only": {
+      "status": "pending real run"
+    },
+    "C_embeddings_slm": {
+      "status": "pending real run"
+    },
+    "D_embeddings_lr": {
+      "status": "pending real run"
+    },
+    "E_lr_then_slm": {
+      "status": "pending real run"
+    }
+  },
+  "detectors": {
+    "dev": {
+      "status": "pending real run"
+    },
+    "test": {
+      "status": "pending real run"
+    },
+    "unseen": {
+      "status": "pending real run"
+    }
+  },
+  "thresholds": {
+    "status": "pending real run"
+  },
+  "pii_leak_check": {
+    "status": "pending real run"
+  },
+  "fallback_limit": 0.02
+}

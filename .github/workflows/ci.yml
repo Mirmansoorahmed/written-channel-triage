@@ -7,6 +7,12 @@ on:
 jobs:
   test-and-eval:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test the tested scikit-learn range on both ends: 1.7.x and the latest
+        # 1.x (>= 1.8). The learned/calibration code must pass on both.
+        sklearn: ["scikit-learn==1.7.*", "scikit-learn>=1.8,<2"]
     steps:
       - uses: actions/checkout@v4
 
@@ -16,13 +22,34 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -e . pytest
+        # Install the core package plus the lightweight libs the tests need
+        # (FastAPI/pydantic for the API, numpy/scikit-learn/joblib for the
+        # learned + retriever tests, matplotlib for charts, httpx for the Ollama
+        # client). The model boundaries are mocked with fakes, so NO model
+        # weights (sentence-transformers/torch) are downloaded in CI. scikit-learn
+        # is pinned per matrix leg to exercise 1.7 and >= 1.8.
+        run: pip install -e . pytest fastapi uvicorn "pydantic>=2" numpy "${{ matrix.sklearn }}" joblib matplotlib httpx
+
+      - name: Show scikit-learn version
+        run: python -c "import sklearn; print('scikit-learn', sklearn.__version__)"
 
       - name: Run tests
-        run: python -m pytest
+        run: python -m pytest -rs
 
-      - name: Run eval
+      - name: Run eval (v1)
         run: PYTHONPATH=src python -m eval.harness
 
-      - name: Show eval results
-        run: cat eval/results.json
+      - name: Leakage gate (test AND unseen vs train/examples/generator-templates)
+        run: PYTHONPATH=src python -m data.overlap_check
+
+      - name: Fuzzy PII leak check (all test + unseen items; fails on any leak)
+        run: PYTHONPATH=src python -m eval.pii_leak_check
+
+      - name: Run eval (v2 offline subset, to a throwaway path)
+        # System A runs; B/C/D/E need real models and are marked pending. The
+        # committed results-v2.json (the pending placeholder) is left untouched.
+        run: |
+          PYTHONPATH=src python -c "import json,eval.harness_v2 as h; r=h.run_eval(real=False, out_dir='/tmp/ci-eval', results_path='/tmp/ci-eval/results.json', error_analysis_path='/tmp/ci-eval/err.md'); print('v2 offline ok; systems:', list(r['systems']))"
+
+      - name: Confirm committed results-v2.json is the pending placeholder
+        run: PYTHONPATH=src python -c "import json; d=json.load(open('eval/results-v2.json')); assert all(b.get('status')=='pending real run' for b in d['systems'].values()), 'committed results must be pending'; print('committed results-v2.json is pending: OK')"

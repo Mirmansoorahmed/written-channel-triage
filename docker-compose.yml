@@ -1,0 +1,43 @@
+# docker-compose for written-channel-triage (V29).
+#
+# Two services:
+#   api     — the FastAPI triage service (this repo's Dockerfile)
+#   ollama  — the local SLM server; the model is pulled on first use
+#
+# Bring it up:
+#   docker compose up --build
+# Then pull the default model once (first run):
+#   docker compose exec ollama ollama pull qwen2.5:1.5b-instruct
+# Try it:
+#   curl -s localhost:8000/healthz
+#   curl -s localhost:8000/triage -H 'content-type: application/json' \
+#        -d '{"text":"Mein Internet ist tot, Störung.","source":"form"}'
+#
+# Synthetic data only; fictional NordTel GmbH. Not a certification.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: triage-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    # Keep the model warm between requests.
+    environment:
+      - OLLAMA_KEEP_ALIVE=10m
+
+  api:
+    build: .
+    container_name: triage-api
+    depends_on:
+      - ollama
+    ports:
+      - "8000:8000"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      # Model used by the SLM path; must match what you pull in the ollama service.
+      - TRIAGE_MODEL=qwen2.5:1.5b-instruct
+
+volumes:
+  ollama-models:
