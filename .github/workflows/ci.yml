@@ -7,6 +7,12 @@ on:
 jobs:
   test-and-eval:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test the tested scikit-learn range on both ends: 1.7.x and the latest
+        # 1.x (>= 1.8). The learned/calibration code must pass on both.
+        sklearn: ["scikit-learn==1.7.*", "scikit-learn>=1.8,<2"]
     steps:
       - uses: actions/checkout@v4
 
@@ -20,8 +26,12 @@ jobs:
         # (FastAPI/pydantic for the API, numpy/scikit-learn/joblib for the
         # learned + retriever tests, matplotlib for charts, httpx for the Ollama
         # client). The model boundaries are mocked with fakes, so NO model
-        # weights (sentence-transformers/torch) are downloaded in CI.
-        run: pip install -e . pytest fastapi uvicorn "pydantic>=2" numpy scikit-learn joblib matplotlib httpx
+        # weights (sentence-transformers/torch) are downloaded in CI. scikit-learn
+        # is pinned per matrix leg to exercise 1.7 and >= 1.8.
+        run: pip install -e . pytest fastapi uvicorn "pydantic>=2" numpy "${{ matrix.sklearn }}" joblib matplotlib httpx
+
+      - name: Show scikit-learn version
+        run: python -c "import sklearn; print('scikit-learn', sklearn.__version__)"
 
       - name: Run tests
         run: python -m pytest -rs
