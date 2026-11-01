@@ -86,7 +86,14 @@ def test_cost_recorded(results):
     cost = results["systems"]["A_v1_regex"]["cost"]
     assert cost["items_scored"] > 0
     assert cost["cpu_seconds_per_item"] is not None
-    assert cost["peak_rss_mb"] > 0
+    assert cost["harness_peak_rss_mb"] > 0
+    # System A does not call the SLM, so its Ollama CPU attribution is zero.
+    assert cost["ollama_cpu_seconds_per_item"] == 0.0
+
+
+def test_thresholds_block_present(results):
+    # Offline (no models) the thresholds block is pending, never invented.
+    assert results["thresholds"]["status"] == "pending real run"
 
 
 def test_no_artifacts_written_to_worktree(results):

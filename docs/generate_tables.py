@@ -104,17 +104,37 @@ def _results_table(data: dict) -> str:
 
 def _detector_table(data: dict) -> str:
     det = data.get("detectors", {})
-    rows = ["| detector | split | precision | recall |", "|---|---|---|---|"]
+    rows = ["| detector | split | precision | recall | FPR |", "|---|---|---|---|---|"]
     for split in ("test", "unseen"):
         block = det.get(split)
         if not block or block.get("status") == "pending real run":
-            rows.append(f"| (all) | {split} | pending real run | pending real run |")
+            rows.append(f"| (all) | {split} | pending real run | pending real run | - |")
             continue
-        for fam in ("phishing", "injection"):
+        ph = block.get("phishing", {})
+        rows.append(f"| phishing | {split} | {_fmt(ph.get('precision'))} "
+                    f"| {_fmt(ph.get('recall'))} | {_fmt(ph.get('fpr'))} |")
+        # Injection is reported twice: rules-only and rules-OR-model (Round 4 #1).
+        for fam, lab in (("injection_rules_only", "injection (rules only)"),
+                         ("injection_combined", "injection (rules OR model)")):
             d = block.get(fam, {})
-            rows.append(f"| {fam} | {split} | {_fmt(d.get('precision'))} | {_fmt(d.get('recall'))} |")
+            if d:
+                rows.append(f"| {lab} | {split} | {_fmt(d.get('precision'))} "
+                            f"| {_fmt(d.get('recall'))} | {_fmt(d.get('fpr'))} |")
         p = block.get("pii_masking_ground_truth", {})
-        rows.append(f"| PII masking (fuzzy ground-truth) | {split} | - | {_fmt(p.get('recall'))} |")
+        rows.append(f"| PII masking (fuzzy ground-truth) | {split} | - "
+                    f"| {_fmt(p.get('recall'))} | - |")
+    # Phishing by auth, so the auth shortcut is visible (Round 4 #6).
+    for split in ("unseen",):
+        block = det.get(split)
+        if block and block.get("status") != "pending real run" and block.get("phishing_by_auth"):
+            rows.append("")
+            rows.append(f"Phishing on the **{split}** set, split by authentication:")
+            rows.append("| auth | n | precision | recall |")
+            rows.append("|---|---|---|---|")
+            for name, d in block["phishing_by_auth"].items():
+                if d.get("n"):
+                    rows.append(f"| {name} | {d['n']} | {_fmt(d.get('precision'))} "
+                                f"| {_fmt(d.get('recall'))} |")
     return "\n".join(rows)
 
 
@@ -169,6 +189,30 @@ def _calibration_table(data: dict) -> str:
     return "\n".join(rows)
 
 
+def _threshold_table(data: dict) -> str:
+    t = data.get("thresholds")
+    if not t or t.get("status") == "pending real run":
+        return "pending real run"
+    rows = [
+        "| quantity | value |",
+        "|---|---|",
+        f"| human-review threshold (dev) | {_fmt(t.get('human_review_threshold'))} |",
+        f"| expected review rate | {_fmt(t.get('expected_review_rate'))} |",
+        f"| auto-handled accuracy at threshold | {_fmt(t.get('auto_accuracy_at_threshold'))} |",
+        f"| E routing threshold (dev) | {_fmt(t.get('e_routing_threshold'))} |",
+        f"| target auto-accuracy | {_fmt(t.get('target_auto_accuracy'))} |",
+    ]
+    rows.append("")
+    rows.append(f"Method: {t.get('method', '-')}")
+    if t.get("note"):
+        rows.append("")
+        rows.append(f"Note: {t['note']}")
+    return "\n".join(rows)
+
+
+ADR7_PATH = os.path.join(HERE, "adr", "0007-calibrated-review-threshold.md")
+
+
 def main() -> None:
     data = _load()
 
@@ -188,10 +232,19 @@ def main() -> None:
     arch = _replace_block(arch, "cost-table", _cost_table(data))
     if "<!-- BEGIN:calibration-table -->" in arch:
         arch = _replace_block(arch, "calibration-table", _calibration_table(data))
+    if "<!-- BEGIN:threshold-table -->" in arch:
+        arch = _replace_block(arch, "threshold-table", _threshold_table(data))
     with open(ARCH_PATH, "w", encoding="utf-8") as f:
         f.write(arch)
 
-    print("regenerated README + architecture tables from eval/results-v2.json")
+    with open(ADR7_PATH, encoding="utf-8") as f:
+        adr = f.read()
+    if "<!-- BEGIN:threshold-table -->" in adr:
+        adr = _replace_block(adr, "threshold-table", _threshold_table(data))
+        with open(ADR7_PATH, "w", encoding="utf-8") as f:
+            f.write(adr)
+
+    print("regenerated README + architecture + ADR 0007 tables from eval/results-v2.json")
 
 
 if __name__ == "__main__":

@@ -151,15 +151,15 @@ seconds per item (`time.process_time`) and peak RSS (`resource.getrusage`); the 
 **assumption**, labelled with its source and date, that you can replace.
 
 <!-- BEGIN:cost-table -->
-VM price assumption: **$0.192/h** for 4 vCPU / 16 GB (example AWS m6i.xlarge on-demand, eu-central-1 (assumption, 2025)).
+ASSUMPTION: $0.192/h for AWS m6i.xlarge (4 vCPU / 16 GB), on-demand, region us-east-1, as of 2025-01 (source: AWS EC2 on-demand pricing page). Replace with your own rate.
 
-| system | CPU s / item | cost per 1k msg (USD) | peak RSS (MB) |
-|---|---|---|---|
-| A - v1 regex/keyword | pending real run | pending real run | pending real run |
-| B - embeddings-only | pending real run | pending real run | pending real run |
-| C - embeddings + SLM | pending real run | pending real run | pending real run |
-| D - embeddings + LR | pending real run | pending real run | pending real run |
-| E - LR, SLM on low conf | pending real run | pending real run | pending real run |
+| system | harness CPU s/item | Ollama CPU s/item | cost per 1k msg (USD) | harness RSS (MB) | Ollama RSS (MB) |
+|---|---|---|---|---|---|
+| A - v1 regex/keyword | pending real run | pending real run | pending real run | pending real run | pending real run |
+| B - embeddings-only | pending real run | pending real run | pending real run | pending real run | pending real run |
+| C - embeddings + SLM | pending real run | pending real run | pending real run | pending real run | pending real run |
+| D - embeddings + LR | pending real run | pending real run | pending real run | pending real run | pending real run |
+| E - LR, SLM on low conf | pending real run | pending real run | pending real run | pending real run | pending real run |
 <!-- END:cost-table -->
 
 ## 8. Calibration and the human-review threshold
@@ -180,6 +180,13 @@ documented in [ADR 0007](adr/0007-calibrated-review-threshold.md).
 | D - embeddings + LR | pending real run | - |
 | E - LR, SLM on low conf | pending real run | - |
 <!-- END:calibration-table -->
+
+The human-review and System-E routing thresholds are chosen on dev in code and filled in
+here by `make docs` from `eval/results-v2.json`:
+
+<!-- BEGIN:threshold-table -->
+pending real run
+<!-- END:threshold-table -->
 
 ## 9. Related docs
 

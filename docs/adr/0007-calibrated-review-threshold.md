@@ -20,11 +20,16 @@ D's calibrated probability for the human-review threshold. The threshold is chos
 accuracy meet the service goal, and record the value, the method, and the expected review
 rate alongside the eval results.
 
-Until a real-model run produces the numbers, the threshold value and the expected review
-rate are marked **pending real run** in `docs/architecture.md`; this repo never invents a
-calibration figure. System E reuses the same idea operationally: it trusts D when D's
-calibrated probability is at or above 0.5 and escalates to the SLM only below that, and it
-reports the resulting SLM-call rate.
+Both thresholds are chosen in code on dev (`_choose_thresholds_on_dev` in
+`eval/harness_v2.py`) and written into `eval/results-v2.json`; `make docs` fills the table
+below from that file. System E reuses the same number operationally: it trusts D at or
+above the chosen threshold and escalates to the SLM only below it (not a hard-coded 0.5),
+and it reports the resulting SLM-call rate. Until a real-model run produces the numbers the
+table is **pending real run**; this repo never invents a calibration figure.
+
+<!-- BEGIN:threshold-table -->
+pending real run
+<!-- END:threshold-table -->
 
 ## Consequences
 - Routing decisions rest on a probability that has been measured for calibration, not on a

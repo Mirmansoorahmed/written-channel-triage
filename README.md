@@ -70,10 +70,10 @@ ratio ≥ 0.85, IBAN fragment ≥ 8 chars) against the values the generator actu
 not the masker's own regex:
 
 <!-- BEGIN:detector-table -->
-| detector | split | precision | recall |
-|---|---|---|---|
-| (all) | test | pending real run | pending real run |
-| (all) | unseen | pending real run | pending real run |
+| detector | split | precision | recall | FPR |
+|---|---|---|---|---|
+| (all) | test | pending real run | pending real run | - |
+| (all) | unseen | pending real run | pending real run | - |
 <!-- END:detector-table -->
 
 Calibration (Expected Calibration Error on the test split). System C's self-reported
@@ -95,15 +95,15 @@ Cost per 1,000 messages is derived from measured CPU seconds and a clearly label
 price assumption:
 
 <!-- BEGIN:cost-table -->
-VM price assumption: **$0.192/h** for 4 vCPU / 16 GB (example AWS m6i.xlarge on-demand, eu-central-1 (assumption, 2025)).
+ASSUMPTION: $0.192/h for AWS m6i.xlarge (4 vCPU / 16 GB), on-demand, region us-east-1, as of 2025-01 (source: AWS EC2 on-demand pricing page). Replace with your own rate.
 
-| system | CPU s / item | cost per 1k msg (USD) | peak RSS (MB) |
-|---|---|---|---|
-| A - v1 regex/keyword | pending real run | pending real run | pending real run |
-| B - embeddings-only | pending real run | pending real run | pending real run |
-| C - embeddings + SLM | pending real run | pending real run | pending real run |
-| D - embeddings + LR | pending real run | pending real run | pending real run |
-| E - LR, SLM on low conf | pending real run | pending real run | pending real run |
+| system | harness CPU s/item | Ollama CPU s/item | cost per 1k msg (USD) | harness RSS (MB) | Ollama RSS (MB) |
+|---|---|---|---|---|---|
+| A - v1 regex/keyword | pending real run | pending real run | pending real run | pending real run | pending real run |
+| B - embeddings-only | pending real run | pending real run | pending real run | pending real run | pending real run |
+| C - embeddings + SLM | pending real run | pending real run | pending real run | pending real run | pending real run |
+| D - embeddings + LR | pending real run | pending real run | pending real run | pending real run | pending real run |
+| E - LR, SLM on low conf | pending real run | pending real run | pending real run | pending real run | pending real run |
 <!-- END:cost-table -->
 
 The split is by template family, so no test template appears in train; a leakage gate
