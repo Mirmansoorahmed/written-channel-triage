@@ -255,3 +255,54 @@ Still synthetic, still not a benchmark. The committed `results-v2.json` is a **p
 placeholder on purpose: every metric, cost and calibration table says "pending real run"
 until the models are run locally, because only System A runs without them and a one-system
 table would be misleading. Run `make train && make eval-real && make docs` to fill them in.
+
+---
+
+# Round 4 — closing the gaps a real run exposed
+
+The second real run was the most useful yet: E came out best, but it also showed six
+honest defects. Fixing them was mostly about making the code do what the docs claimed.
+
+- **The injection LR was dead code.** `pipeline.run` accepted `injection_model` and
+  `injection_threshold`, but nothing passed them, so every injection verdict was
+  rules-only. Now `learned.load_injection_detector` reads `injection_lr.joblib` and the
+  dev threshold from the manifest, the API and the harness pass them through, and the
+  detector reports P/R/FPR twice per split (rules-only vs rules-OR-model). A stub-model
+  test proves the API and harness flag an item the rules alone miss.
+- **C's cost was ~16x too low** because the SLM's CPU is spent in the Ollama process, not
+  the harness. `eval/procstat.py` now reads Ollama's utime+stime and RSS from `/proc`
+  around each SLM system's pass; cost per 1k is harness CPU-s + Ollama CPU-s, and the two
+  RSS figures are reported separately. The VM price label states instance, region
+  (us-east-1, not the earlier mislabelled eu-central-1), date and source — as an
+  assumption, not a quote.
+- **Tests broke on scikit-learn 1.9** because `multi_class="auto"` was removed. Dropped
+  it (LogisticRegression picks multinomial on its own) and pinned `scikit-learn>=1.3,<2`;
+  CI runs the suite on 1.7 and on >= 1.8.
+- **"Calibrated on dev" was false** — `CalibratedClassifierCV(cv=3)` refits on train. Now
+  the base LR is fit on train and the sigmoid calibrator is fit on dev via `cv='prefit'`,
+  so the claim is true. The human-review threshold and E's routing threshold are chosen
+  **in code on dev** from D's probabilities (smallest threshold whose auto-handled
+  accuracy clears the target; the expected review rate is reported), written to
+  `results-v2.json`, and `make docs` fills ADR 0007 and architecture §8 from it. E routes
+  on that dev threshold instead of a hard-coded 0.5 and has its own 2% fallback gate.
+- **4 test items still leaked PII.** The partial-ratio matcher was aligned-Hamming, which
+  collapses after a single inserted/deleted character; it is now a real edit-distance
+  partial ratio. The masker also masks a typo'd street before an `[[ADDRESS]]` token and
+  signature names with a one-letter or typo'd token. The leak check runs on *every* item
+  with ground-truth PII (not only `has_pii`), against the pre- and post-typo values; the
+  committed count is 0.
+- **Auth alone separated unseen phishing from benign.** The unseen set now has auth=PASS
+  phishing (authenticated lookalike / combo-squat / brand-like senders) and auth=FAIL or
+  missing *legitimate* mail (forwards, a mailing list, a customer who writes "Mahnung …
+  sofort zahlen" about their own invoice). A new combo-squat signal fires when the brand
+  label appears inside a foreign registrable domain, so an authenticated `nordtel-billing.co`
+  is still caught. Unseen phishing P/R is reported split by auth, and the few benign
+  fail/missing cases the detector over-flags are shown rather than hidden — the point is
+  that auth is not a clean separator.
+
+## Honest limits (Round 4)
+
+Unchanged in spirit: synthetic data, not a benchmark, every real-model number pending a
+local run. System C (the SLM classifier) is, on the unseen split, *worse* than the plain
+regex and over-predicts `Sonstiges`; E wins by trusting the calibrated LR and paying for
+the SLM only on the uncertain tail. Those facts are stated in `docs/error-analysis.md`.
