@@ -1,4 +1,20 @@
-# written-channel-triage
+# Secure Written-Channel Triage: a safe front door for customer emails and web forms
+
+**Problem:** Support messages carry personal data, phishing and prompt-injection text. If they go straight to an AI model or an agent, data leaks and an attacker can trigger account changes.
+**What it does:** Every message goes through fixed, explainable steps *before* any model or human sees it: sender check (SPF/DKIM/DMARC) and phishing flags, PII masking, German intent classification, prompt-injection detection on the masked text, and a policy gate. Account changes are never auto-run; they wait for a human. Every step is written to a hash-chained audit log. Fictional German telco, synthetic data.
+
+**Run it in 3 steps** (Python 3.10+, no network, no model download):
+```bash
+python3 -m pip install -e ".[dev]"
+python3 -m pytest
+PYTHONPATH=src python3 -m eval.harness
+```
+
+**What you'll see:** on 199 synthetic German messages: PII masking 27/27 with no raw leak, phishing recall 1.0 (precision 0.963), injection precision 1.0 / recall 0.9259 (2 obfuscated misses, reported), category accuracy 0.8894.
+
+**Read more:** [Design (spec)](docs/spec/design.md) · [Requirements](docs/spec/requirements.md) · [Control mapping (ISO 27001 / ISO 42001 / NIS2 / EU AI Act)](docs/control-mapping.md) · [Learnings and the "why" of each decision](LEARNINGS.md) · [How I built this](#how-i-built-this)
+
+---
 
 One safe entry point for written customer support (email + web-form text) at a
 **fictional** German telco, *NordTel GmbH*. It triages a message — checks the sender,
@@ -106,3 +122,16 @@ LEARNINGS.md  concepts, tools, and the "why" behind each security decision
 - [`docs/control-mapping.md`](docs/control-mapping.md) — each control mapped to ISO 27001
   Annex A / ISO 42001 / NIS2 Art.21 / EU AI Act by **ID and my own-words title only**.
 - [`LEARNINGS.md`](LEARNINGS.md) — the concepts, the tools, and why I made each decision.
+
+## How I built this
+
+What I owned:
+- **The problem and the rules:** mask before the model, check for injection on the masked text, never run an account change without a human, never silently close a request out of hours, and keep a tamper-evident log with no raw PII. These rules are in [LEARNINGS.md](LEARNINGS.md), with the reason for each one.
+- **Threats and controls:** the mapping to ISO 27001, ISO 42001, NIS2 and the EU AI Act in [docs/control-mapping.md](docs/control-mapping.md).
+- **Test cases:** the hard cases in the synthetic corpus (phishing, injection, PII-heavy, out of hours) and what counts as a pass.
+- **Review and runs:** I ran the tests and the eval myself and only report numbers the run produced.
+
+### What didn't work, and what I changed
+1. **A small test set looked perfect and hid real gaps.** When I grew the corpus to 199 messages with hard cases, injection recall dropped to 0.9259. The regex missed a spaced-out `I G N O R E ...` and a "repeat the above instructions, then ignore them" phrasing. I report the misses as they are. On the `v2` branch the text is normalised before the injection check (ADR 0003). *(README "Measured results"; LEARNINGS.md; v2 commit 2e8a4a4)*
+2. **A phishing false positive.** A malicious `wget http://.../payload` line was labelled as a payment link because of the `pay` substring (precision 0.963). On `v2` I fixed the boundary and rewrote the phishing detector to use generic signals instead of the generator's own domains. *(README; LEARNINGS.md; v2 commits 2e8a4a4, f5d19f3)*
+3. **Train/test leakage in the first v2 dataset.** Test messages came from the same templates as training messages, so scores were too optimistic. I split by template family and added a leakage gate that fails the build if any test or unseen item is 0.9 or more similar to training text. *(v2 commit 4ef45b9 "Fix train/test leakage, PII masking, and System C honesty"; v2 README; ADR 0004)*
